@@ -5,9 +5,10 @@ from dataclasses import field
 from decimal import Decimal
 from functools import partial
 import logging
-from typing import List
+from typing import Any, Collection, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, TypedDict
 from itertools import chain
 
+import attrs
 from runtype import dataclass
 
 from data_diff.sqeleton.databases import Database, MsSQL, MySQL, BigQuery, Presto, Oracle, Snowflake, DbPath
@@ -28,16 +29,18 @@ from data_diff.sqeleton.queries import (
     when,
     Compiler,
 )
-from data_diff.sqeleton.queries.ast_classes import Concat, Count, Expr, Func, Random, TablePath, Code, ITable
+from data_diff.sqeleton.queries.ast_classes import CaseWhen, Concat, Count, Expr, ExprNode, Random, TablePath, Code, \
+    ITable
 from data_diff.sqeleton.queries.extras import NormalizeAsString
 
 from .info_tree import InfoTree
 
 from .query_utils import append_to_table, drop_table
+from .sqeleton.queries.compiler import Root
 from .utils import safezip
 from .table_segment import TableSegment
-from .diff_tables import TableDiffer, DiffResult
-from .thread_utils import ThreadedYielder
+from .diff_tables import TableDiffer
+from .thread_utils import DiffItem, ThreadedYielder
 
 
 logger = logging.getLogger("joindiff_tables")
@@ -74,7 +77,7 @@ def create_temp_table(c: Compiler, path: TablePath, expr: Expr) -> str:
         return f"create temporary table {c.compile(path)} as {c.compile(expr)}"
 
 
-def bool_to_int(x):
+def bool_to_int(x) -> CaseWhen:
     return if_(x, 1, 0)
 
 
@@ -116,7 +119,17 @@ def json_friendly_value(v):
     return v
 
 
-@dataclass
+class JoinDifferStats(TypedDict, total=False):
+    count: int
+    exclusive_count: int
+    exclusive_sample: List[Any]
+    diff_counts: Mapping[str, int]
+    validated_unique_keys: Collection[str]
+    # table1_sum_{c}: int
+    # table2_sum_{c}: int
+
+
+@attrs.define(kw_only=True)
 class JoinDiffer(TableDiffer):
     """Finds the diff between two SQL tables in the same database, using JOINs.
 
@@ -148,21 +161,22 @@ class JoinDiffer(TableDiffer):
     table_write_limit: int = TABLE_WRITE_LIMIT
     skip_null_keys: bool = False
 
-    stats: dict = field(default_factory=dict)
+    stats: JoinDifferStats = attrs.field(factory=dict)
 
-    def _diff_tables_root(self, table1: TableSegment, table2: TableSegment, info_tree: InfoTree) -> DiffResult:
+    def _diff_tables_root(self, table1: TableSegment, table2: TableSegment, info_tree: InfoTree) -> Iterable[DiffItem]:
         db = table1.database
 
         if table1.database is not table2.database:
             raise ValueError("Join-diff only works when both tables are in the same database")
 
-        table1, table2 = self._threaded_call("with_schema", [table1, table2])
+        table1, table2 = self._thread_call(table1.with_schema, table2.with_schema)
 
-        bg_funcs = [partial(self._test_duplicate_keys, table1, table2)] if self.validate_unique_key else []
         if self.materialize_to_table:
             drop_table(db, self.materialize_to_table)
 
-        with self._run_in_background(*bg_funcs):
+        with self._run_in_background(
+            partial(self._test_duplicate_keys, table1, table2) if self.validate_unique_key else None
+        ):
             if isinstance(db, (Snowflake, BigQuery)):
                 # Don't segment the table; let the database handling parallelization
                 yield from self._diff_segments(None, table1, table2, info_tree, None)
@@ -180,9 +194,9 @@ class JoinDiffer(TableDiffer):
         info_tree: InfoTree,
         max_rows: int,
         level=0,
-        segment_index=None,
-        segment_count=None,
-    ):
+        segment_index: Optional[int] = None,
+        segment_count: Optional[int] = None,
+    ) -> Iterable[DiffItem]:
         assert table1.database is table2.database
 
         if segment_index or table1.min_key or max_rows:
@@ -232,7 +246,7 @@ class JoinDiffer(TableDiffer):
                 if not is_xa:
                     yield "+", tuple(b_row)
 
-    def _test_duplicate_keys(self, table1: TableSegment, table2: TableSegment):
+    def _test_duplicate_keys(self, table1: TableSegment, table2: TableSegment) -> None:
         logger.debug("Testing for duplicate keys")
 
         # Test duplicate keys
@@ -254,7 +268,7 @@ class JoinDiffer(TableDiffer):
                 if total != total_distinct:
                     raise ValueError("Duplicate primary keys")
 
-    def _test_null_keys(self, table1, table2):
+    def _test_null_keys(self, table1: TableSegment, table2: TableSegment) -> None:
         logger.debug("Testing for null keys")
 
         # Test null keys
@@ -272,7 +286,7 @@ class JoinDiffer(TableDiffer):
                 else:
                     raise ValueError(f"NULL values in one or more primary keys of {ts.table_path}")
 
-    def _collect_stats(self, i, table_seg: TableSegment, info_tree: InfoTree):
+    def _collect_stats(self, i, table_seg: TableSegment, info_tree: InfoTree) -> None:
         logger.debug(f"Collecting stats for table #{i}")
         db = table_seg.database
 
@@ -311,7 +325,16 @@ class JoinDiffer(TableDiffer):
 
         logger.debug("Done collecting stats for table #%s", i)
 
-    def _create_outer_join(self, table1, table2):
+    def _create_outer_join(
+        self, table1: TableSegment, table2: TableSegment
+    ) -> Tuple[
+        # TODO: this must be a NamedTuple! or a data/attrs class.
+        ITable,
+        Mapping[str, ExprNode],
+        Mapping[str, ExprNode],
+        Mapping[str, ExprNode],
+        ITable,
+    ]:
         db = table1.database
         if db is not table2.database:
             raise ValueError("Joindiff only applies to tables within the same database")
@@ -340,15 +363,27 @@ class JoinDiffer(TableDiffer):
         diff_rows = all_rows.where(or_(this[c] == 1 for c in is_diff_cols))
         return diff_rows, a_cols, b_cols, is_diff_cols, all_rows
 
-    def _count_diff_per_column(self, db, diff_rows, cols, is_diff_cols):
+    def _count_diff_per_column(
+        self,
+        db: Database,
+        diff_rows: ITable,
+        cols: Sequence[str],
+        is_diff_cols: Mapping[str, ExprNode],
+    ) -> None:
         logger.debug("Counting differences per column")
         is_diff_cols_counts = db.query(diff_rows.select(sum_(this[c]) for c in is_diff_cols), tuple)
-        diff_counts = {}
+        diff_counts: Dict[str, int] = {}
         for name, count in safezip(cols, is_diff_cols_counts):
             diff_counts[name] = diff_counts.get(name, 0) + (count or 0)
         self.stats["diff_counts"] = diff_counts
 
-    def _sample_and_count_exclusive(self, db, diff_rows, a_cols, b_cols):
+    def _sample_and_count_exclusive(
+        self,
+        db: Database,
+        diff_rows: ITable,
+        a_cols: Mapping[str, ExprNode],
+        b_cols: Mapping[str, ExprNode],
+    ) -> None:
         if isinstance(db, (Oracle, MsSQL)):
             exclusive_rows_query = diff_rows.where((this.is_exclusive_a == 1) | (this.is_exclusive_b == 1))
         else:
@@ -361,7 +396,9 @@ class JoinDiffer(TableDiffer):
 
         logger.info("Counting and sampling exclusive rows")
 
-        def exclusive_rows(expr):
+        def exclusive_rows(expr: ITable) -> Iterable[Root]:
+            nonlocal db
+
             c = Compiler(db)
             name = c.new_unique_table_name("temp_table")
             exclusive_rows = table(name, schema=expr.source_table.schema)
@@ -378,7 +415,7 @@ class JoinDiffer(TableDiffer):
         # Run as a sequence of thread-local queries (compiled into a ThreadLocalInterpreter)
         db.query(exclusive_rows(exclusive_rows_query), None)
 
-    def _materialize_diff(self, db, diff_rows, segment_index=None):
+    def _materialize_diff(self, db: Database, diff_rows: ITable, segment_index: Optional[int] = None) -> None:
         assert self.materialize_to_table
 
         append_to_table(db, self.materialize_to_table, diff_rows.limit(self.table_write_limit))

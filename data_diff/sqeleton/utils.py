@@ -21,10 +21,7 @@ from urllib.parse import urlparse
 
 # -- Common --
 
-try:
-    from typing import Self
-except ImportError:
-    Self = Any
+from typing_extensions import Self
 
 
 class WeakCache:
@@ -143,14 +140,10 @@ alphanums = " -" + string.digits + string.ascii_uppercase + "_" + string.ascii_l
 
 
 class ArithString:
-    @classmethod
-    def new(cls, *args, **kw):
-        return cls(*args, **kw)
-
-    def range(self, other: "ArithString", count: int):
+    def range(self: Self, other: "ArithString", count: int) -> Self:
         assert isinstance(other, ArithString)
         checkpoints = split_space(self.int, other.int, count)
-        return [self.new(int=i) for i in checkpoints]
+        return [self.__class__(int=i) for i in checkpoints]
 
 
 class ArithUUID(UUID, ArithString):
@@ -161,12 +154,12 @@ class ArithUUID(UUID, ArithString):
 
     def __add__(self, other: int):
         if isinstance(other, int):
-            return self.new(int=self.int + other)
+            return self.__class__(int=self.int + other)
         return NotImplemented
 
     def __sub__(self, other: Union[UUID, int]):
         if isinstance(other, int):
-            return self.new(int=self.int - other)
+            return self.__class__(int=self.int - other)
         elif isinstance(other, UUID):
             return self.int - other.int
         return NotImplemented
@@ -231,20 +224,20 @@ class ArithAlphanumeric(ArithString):
     def __repr__(self):
         return f'alphanum"{self._str}"'
 
-    def __add__(self, other: "Union[ArithAlphanumeric, int]") -> "ArithAlphanumeric":
+    def __add__(self: Self, other: "Union[ArithAlphanumeric, int]") -> Self:
         if isinstance(other, int):
             if other != 1:
                 raise NotImplementedError("not implemented for arbitrary numbers")
             num = alphanumToNumber(self._str)
-            return self.new(numberToAlphanum(num + 1))
+            return self.__class__(numberToAlphanum(num + 1))
 
         return NotImplemented
 
-    def range(self, other: "ArithAlphanumeric", count: int):
+    def range(self: Self, other: "ArithAlphanumeric", count: int) -> Self:
         assert isinstance(other, ArithAlphanumeric)
         n1, n2 = alphanums_to_numbers(self._str, other._str)
         split = split_space(n1, n2, count)
-        return [self.new(numberToAlphanum(s)) for s in split]
+        return [self.__class__(numberToAlphanum(s)) for s in split]
 
     def __sub__(self, other: "Union[ArithAlphanumeric, int]") -> float:
         if isinstance(other, ArithAlphanumeric):

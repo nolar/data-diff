@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from typing import Dict, Iterable, Sequence
+from typing import Any, Dict, Generic, Iterable, NewType, Sequence, Tuple, TypeVar
 from urllib.parse import urlparse
 import operator
 import threading
@@ -80,7 +80,7 @@ def eval_name_template(name):
     return re.sub("%t", get_timestamp, name)
 
 
-def truncate_error(error: str):
+def truncate_error(error: str) -> str:
     first_line = error.split("\n", 1)[0]
     return re.sub("'(.*?)'", "'***'", first_line)
 
@@ -94,8 +94,11 @@ def get_from_dict_with_raise(dictionary: Dict, key: str, exception: Exception):
     return result
 
 
-class Vector(tuple):
+# All the PK types we accept. TODO: Replace Any with a more specific Union.
+PK = Any
 
+
+class Vector(Tuple[PK]):
     """Immutable implementation of a regular vector over any arithmetic value
 
     Implements a product order - https://en.wikipedia.org/wiki/Product_order
@@ -138,7 +141,7 @@ class Vector(tuple):
 
 
 def dbt_diff_string_template(
-    rows_added: str, rows_removed: str, rows_updated: str, rows_unchanged: str, extra_info_dict: Dict, extra_info_str
+    rows_added: int, rows_removed: int, rows_updated: int, rows_unchanged: int, extra_info_dict: Dict, extra_info_str
 ) -> str:
     string_output = f"\n{tabulate([[rows_added, rows_removed]], headers=['Rows Added', 'Rows Removed'])}"
 

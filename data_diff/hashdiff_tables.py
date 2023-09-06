@@ -3,8 +3,7 @@ from dataclasses import field
 from numbers import Number
 import logging
 from collections import defaultdict
-from typing import Iterator
-from operator import attrgetter
+from typing import Iterable, Iterator, Optional, TypedDict
 
 from runtype import dataclass
 
@@ -12,7 +11,7 @@ from data_diff.sqeleton.abcs import ColType_UUID, NumericType, PrecisionType, St
 
 from .info_tree import InfoTree
 from .utils import safezip, diffs_are_equiv_jsons
-from .thread_utils import ThreadedYielder
+from .thread_utils import DiffItem, ThreadedYielder
 from .table_segment import TableSegment
 
 from .diff_tables import TableDiffer
@@ -55,6 +54,10 @@ def diff_sets(a: list, b: list, json_cols: dict = None) -> Iterator:
         yield from v
 
 
+class HashDifferStats(TypedDict, total=True):
+    rows_downloaded: int
+
+
 @dataclass
 class HashDiffer(TableDiffer):
     """Finds the diff between two SQL tables
@@ -76,7 +79,7 @@ class HashDiffer(TableDiffer):
     bisection_factor: int = DEFAULT_BISECTION_FACTOR
     bisection_threshold: Number = DEFAULT_BISECTION_THRESHOLD  # Accepts inf for tests
 
-    stats: dict = field(default_factory=dict)
+    stats: HashDifferStats = field(default_factory=dict)
 
     def __post_init__(self):
         # Validate options
@@ -99,7 +102,7 @@ class HashDiffer(TableDiffer):
                 if not isinstance(col2, PrecisionType):
                     raise TypeError(f"Incompatible types for column '{c1}':  {col1} <-> {col2}")
 
-                lowest = min(col1, col2, key=attrgetter("precision"))
+                lowest = col1 if col1.precision <= col2.precision else col2
 
                 if col1.precision != col2.precision:
                     logger.warning(f"Using reduced precision {lowest} for column '{c1}'. Types={col1}, {col2}")
@@ -111,7 +114,7 @@ class HashDiffer(TableDiffer):
                 if not isinstance(col2, (NumericType, Boolean)):
                     raise TypeError(f"Incompatible types for column '{c1}':  {col1} <-> {col2}")
 
-                lowest = min(col1, col2, key=attrgetter("precision"))
+                lowest = col1 if col1.precision <= col2.precision else col2
 
                 if col1.precision != col2.precision:
                     logger.warning(f"Using reduced precision {lowest} for column '{c1}'. Types={col1}, {col2}")
@@ -146,9 +149,9 @@ class HashDiffer(TableDiffer):
         info_tree: InfoTree,
         max_rows: int,
         level=0,
-        segment_index=None,
-        segment_count=None,
-    ):
+        segment_index: Optional[int] = None,
+        segment_count: Optional[int] = None,
+    ) -> Optional[Iterable[DiffItem]]:  # TODO: is Optional[] part needed here? Can it be an empty ()?
         logger.info(
             ". " * level + f"Diffing segment {segment_index}/{segment_count}, "
             f"key-range: {table1.min_key}..{table2.max_key}, "
@@ -163,7 +166,7 @@ class HashDiffer(TableDiffer):
             if max_rows < self.bisection_threshold:
                 return self._bisect_and_diff_segments(ti, table1, table2, info_tree, level=level, max_rows=max_rows)
 
-        (count1, checksum1), (count2, checksum2) = self._threaded_call("count_and_checksum", [table1, table2])
+        (count1, checksum1), (count2, checksum2) = self._thread_call(table1.count_and_checksum, table2.count_and_checksum)
 
         assert not info_tree.info.rowcounts
         info_tree.info.rowcounts = {1: count1, 2: count2}
@@ -194,7 +197,7 @@ class HashDiffer(TableDiffer):
         info_tree: InfoTree,
         level=0,
         max_rows=None,
-    ):
+    ) -> Optional[Iterable[DiffItem]]:  # TODO: is Optional[] part needed here? Can it be an empty ()?
         assert table1.is_bounded and table2.is_bounded
 
         max_space_size = max(table1.approximate_size(), table2.approximate_size())
@@ -206,7 +209,7 @@ class HashDiffer(TableDiffer):
         # If count is below the threshold, just download and compare the columns locally
         # This saves time, as bisection speed is limited by ping and query performance.
         if max_rows < self.bisection_threshold or max_space_size < self.bisection_factor * 2:
-            rows1, rows2 = self._threaded_call("get_values", [table1, table2])
+            rows1, rows2 = self._thread_call(table1.get_values, table2.get_values)
             json_cols = {
                 i: colname
                 for i, colname in enumerate(table1.extra_columns)

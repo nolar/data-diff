@@ -1,5 +1,5 @@
 from dataclasses import field
-from typing import List, Dict, Optional, Any, Tuple, Union
+from typing import List, Dict, Optional, Any, Sequence, Tuple, Union
 
 from runtype import dataclass
 
@@ -10,13 +10,13 @@ from .table_segment import TableSegment
 class SegmentInfo:
     tables: List[TableSegment]
 
-    diff: List[Union[Tuple[Any, ...], List[Any]]] = None
+    diff: List[Sequence[Any]] = None
     diff_schema: Tuple[Tuple[str, type], ...] = None
-    is_diff: bool = None
-    diff_count: int = None
+    is_diff: Optional[bool] = None
+    diff_count: Optional[int] = None
 
     rowcounts: Dict[int, int] = field(default_factory=dict)
-    max_rows: int = None
+    max_rows: Optional[int] = None
 
     def set_diff(self, diff: List[Union[Tuple[Any, ...], List[Any]]], schema: Optional[Tuple[Tuple[str, type]]] = None):
         self.diff_schema = schema
@@ -45,12 +45,14 @@ class InfoTree:
     info: SegmentInfo
     children: List["InfoTree"] = field(default_factory=list)
 
-    def add_node(self, table1: TableSegment, table2: TableSegment, max_rows: int = None):
+    def add_node(
+        self, table1: TableSegment, table2: TableSegment, max_rows: Optional[int] = None
+    ) -> "InfoTree":
         node = InfoTree(SegmentInfo([table1, table2], max_rows=max_rows))
         self.children.append(node)
         return node
 
-    def aggregate_info(self):
+    def aggregate_info(self) -> None:
         if self.children:
             for c in self.children:
                 c.aggregate_info()

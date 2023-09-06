@@ -1,11 +1,13 @@
 import time
-from typing import List, Tuple
+from typing import Collection, Iterable, List, NamedTuple, Optional, Sequence, Tuple, TypeVar
 import logging
 from itertools import product
 
+from typing_extensions import Self
+
 from runtype import dataclass
 
-from .utils import safezip, Vector
+from .utils import PK, safezip, Vector
 from data_diff.sqeleton.utils import ArithString, split_space
 from data_diff.sqeleton.databases import Database, DbPath, DbKey, DbTime
 from data_diff.sqeleton.schema import Schema, create_schema
@@ -45,7 +47,13 @@ def split_compound_key_space(mn: Vector, mx: Vector, count: int) -> List[List[Db
     return [split_key_space(mn_k, mx_k, count) for mn_k, mx_k in safezip(mn, mx)]
 
 
-def create_mesh_from_points(*values_per_dim: list) -> List[Tuple[Vector, Vector]]:
+class Range(NamedTuple):
+    start: Vector
+    end: Vector
+
+
+# TODO: Likely a ->Sequence[], but let's try ->Collection[] first, maybe it works too.
+def create_mesh_from_points(*values_per_dim: Sequence[PK]) -> Collection[Range]:
     """Given a list of values along each axis of N dimensional space,
     return an array of boxes whose start-points & end-points align with the given values,
     and together consitute a mesh filling that space entirely (within the bounds of the given values).
@@ -75,7 +83,7 @@ def create_mesh_from_points(*values_per_dim: list) -> List[Tuple[Vector, Vector]
     assert all(a <= b for r in ranges for a, b in r)
 
     # Create a product of all the ranges
-    res = [tuple(Vector(a) for a in safezip(*r)) for r in product(*ranges)]
+    res = [Range(*(Vector(a) for a in safezip(*r))) for r in product(*ranges)]
 
     expected_len = int_product(len(v) - 1 for v in values_per_dim)
     assert len(res) == expected_len, (len(res), expected_len)
@@ -107,20 +115,20 @@ class TableSegment:
     database: Database
     table_path: DbPath
 
-    # Columns
-    key_columns: Tuple[str, ...]
-    update_column: str = None
-    extra_columns: Tuple[str, ...] = ()
+    # Columns. The SQL is generated and results arrive in order, so a Sequence, not a Collection.
+    key_columns: Sequence[str]
+    update_column: Optional[str] = None
+    extra_columns: Sequence[str] = ()
 
     # Restrict the segment
-    min_key: Vector = None
-    max_key: Vector = None
-    min_update: DbTime = None
-    max_update: DbTime = None
-    where: str = None
+    min_key: Optional[Vector] = None
+    max_key: Optional[Vector] = None
+    min_update: Optional[DbTime] = None
+    max_update: Optional[DbTime] = None
+    where: Optional[str] = None
 
     case_sensitive: bool = True
-    _schema: Schema = None
+    _schema: Optional[Schema] = None
 
     def __post_init__(self):
         if not self.update_column and (self.min_update or self.max_update):
@@ -139,7 +147,8 @@ class TableSegment:
 
     def _with_raw_schema(self, raw_schema: dict) -> "TableSegment":
         schema = self.database._process_table_schema(self.table_path, raw_schema, self.relevant_columns, self._where())
-        return self.new(_schema=create_schema(self.database, self.table_path, schema, self.case_sensitive))
+        schema = create_schema(self.database, self.table_path, schema, self.case_sensitive)
+        return self.replace(_schema=schema)
 
     def with_schema(self) -> "TableSegment":
         "Queries the table schema from the database, and returns a new instance of TableSegment, with a schema."
@@ -194,11 +203,12 @@ class TableSegment:
 
         return [self.new_key_bounds(min_key=s, max_key=e) for s, e in create_mesh_from_points(*checkpoints)]
 
+    # TODO: get rid of this factory, but used in diff_tables() -- the last usage with kwargs dict
     def new(self, **kwargs) -> "TableSegment":
         """Creates a copy of the instance using 'replace()'"""
         return self.replace(**kwargs)
 
-    def new_key_bounds(self, min_key: Vector, max_key: Vector) -> "TableSegment":
+    def new_key_bounds(self: Self, min_key: Vector, max_key: Vector) -> Self:
         if self.min_key is not None:
             assert self.min_key <= min_key, (self.min_key, min_key)
             assert self.min_key < max_key

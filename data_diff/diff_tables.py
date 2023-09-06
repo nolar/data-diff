@@ -1,27 +1,36 @@
 """Provides classes for performing a table diff
 """
-
-import re
 import time
 from abc import ABC, abstractmethod
 from dataclasses import field
 from enum import Enum
 from contextlib import contextmanager
-from operator import methodcaller
-from typing import Dict, Tuple, Iterator, Optional
+from functools import partial
+from typing import Any, Callable, Collection, Dict, Generator, Iterable, List, Sequence, Tuple, Iterator, \
+    Optional, \
+    TypeVar, Union
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import attrs
 from runtype import dataclass
 
 from data_diff.info_tree import InfoTree, SegmentInfo
 
-from .utils import dbt_diff_string_template, run_as_daemon, safezip, getLogger, truncate_error, Vector
-from .thread_utils import ThreadedYielder
-from .table_segment import TableSegment, create_mesh_from_points
+from .utils import PK, dbt_diff_string_template, run_as_daemon, safezip, getLogger, truncate_error, Vector
+from .thread_utils import DiffOp, ThreadedYielder, DiffItem
+from .table_segment import Range, TableSegment, create_mesh_from_points
 from .tracking import create_end_event_json, create_start_event_json, send_event_json, is_tracking_enabled
 from data_diff.sqeleton.abcs import IKey
 
 logger = getLogger(__name__)
+R = TypeVar('R')
+
+# TODO: these are hgher-level things in this lower-level module, this introduced circular imports,
+#   get rid of it somehow and make it strict again, e.g. by using attr classes instead of dicts
+# from .hashdiff_tables import HashDifferStats
+# from .joindiff_tables import JoinDifferStats
+# DifferStats = Union[JoinDifferStats, HashDifferStats]
+DifferStats = Dict[str, Any]
 
 
 class Algorithm(Enum):
@@ -30,66 +39,60 @@ class Algorithm(Enum):
     HASHDIFF = "hashdiff"
 
 
-DiffResult = Iterator[Tuple[str, tuple]]  # Iterator[Tuple[Literal["+", "-"], tuple]]
-
-
-@dataclass
+@attrs.define(kw_only=True)
 class ThreadBase:
     "Provides utility methods for optional threading"
 
     threaded: bool = True
     max_threadpool_size: Optional[int] = 1
 
-    def _thread_map(self, func, iterable):
+    def _thread_call(self, *funcs: Callable[[], R]) -> Iterable[R]:
         if not self.threaded:
-            return map(func, iterable)
+            return (func() for func in funcs)
 
-        with ThreadPoolExecutor(max_workers=self.max_threadpool_size) as task_pool:
-            return task_pool.map(func, iterable)
+        max_workers = min(self.max_threadpool_size, len(funcs))
+        with ThreadPoolExecutor(max_workers=max_workers) as task_pool:
+            futures = [task_pool.submit(func) for func in funcs]
+            for future in futures:
+                yield future.result()
 
-    def _threaded_call(self, func, iterable):
-        "Calls a method for each object in iterable."
-        return list(self._thread_map(methodcaller(func), iterable))
-
-    def _thread_as_completed(self, func, iterable):
+    def _thread_as_completed(self, *funcs: Callable[[], R]) -> Iterable[R]:
         if not self.threaded:
-            yield from map(func, iterable)
-            return
+            return (func() for func in funcs)
 
-        with ThreadPoolExecutor(max_workers=self.max_threadpool_size) as task_pool:
-            futures = [task_pool.submit(func, item) for item in iterable]
+        max_workers = min(self.max_threadpool_size, len(funcs))
+        with ThreadPoolExecutor(max_workers=max_workers) as task_pool:
+            futures = [task_pool.submit(func) for func in funcs]
             for future in as_completed(futures):
                 yield future.result()
 
-    def _threaded_call_as_completed(self, func, iterable):
-        "Calls a method for each object in iterable. Returned in order of completion."
-        return self._thread_as_completed(methodcaller(func), iterable)
-
     @contextmanager
-    def _run_in_background(self, *funcs):
-        with ThreadPoolExecutor(max_workers=self.max_threadpool_size) as task_pool:
-            futures = [task_pool.submit(f) for f in funcs if f is not None]
-            yield futures
+    def _run_in_background(self, *funcs: Optional[Callable[[], R]]) -> Iterator[None]:
+        real_funcs = [func for func in funcs if func is not None]
+        max_workers = min(self.max_threadpool_size, len(real_funcs))
+        with ThreadPoolExecutor(max_workers=max_workers) as task_pool:
+            futures = [task_pool.submit(func) for func in real_funcs]
+            yield
             for f in futures:
                 f.result()
 
 
 @dataclass
 class DiffStats:
-    diff_by_sign: Dict[str, int]
+    diff_by_sign: Dict[DiffOp, int]
     table1_count: int
     table2_count: int
     unchanged: int
     diff_percent: float
-    extra_column_diffs: Optional[Dict[str, int]]
+    extra_column_diffs: Dict[str, int]
 
 
-@dataclass
+@attrs.define(frozen=True, kw_only=True)
 class DiffResultWrapper:
-    diff: iter  # DiffResult
+    diff: Generator[DiffItem, None, None]
     info_tree: InfoTree
-    stats: dict
-    result_list: list = field(default_factory=list)
+    stats: DifferStats
+    result_list: List[DiffItem] = attrs.field(factory=list)
 
     def __iter__(self):
         yield from self.result_list
@@ -102,30 +105,32 @@ class DiffResultWrapper:
 
         key_columns = self.info_tree.info.tables[0].key_columns
         len_key_columns = len(key_columns)
-        diff_by_key = {}
-        extra_column_diffs = None
+        diff_by_key: Dict[Tuple[PK, ...], DiffOp] = {}
+        extra_column_values: Sequence[PK] = ()
+        extra_column_diffs: Dict[str, int] = {}
+        extra_columns: Sequence[str] = ()
         if is_dbt:
             extra_column_values_store = {}
-            extra_columns = self.info_tree.info.tables[0].extra_columns
+            extra_columns: Sequence[str] = self.info_tree.info.tables[0].extra_columns
             extra_column_diffs = {k: 0 for k in extra_columns}
 
         for sign, values in self.result_list:
-            k = values[:len_key_columns]
+            k: Tuple[PK, ...] = tuple(values[:len_key_columns])
             if is_dbt:
                 extra_column_values = values[len_key_columns:]
             if k in diff_by_key:
                 assert sign != diff_by_key[k]
                 diff_by_key[k] = "!"
                 if is_dbt:
-                    for i in range(0, len(extra_columns)):
+                    for i, k in enumerate(extra_columns):
                         if extra_column_values[i] != extra_column_values_store[k][i]:
-                            extra_column_diffs[extra_columns[i]] += 1
+                            extra_column_diffs[k] += 1
             else:
                 diff_by_key[k] = sign
                 if is_dbt:
                     extra_column_values_store[k] = extra_column_values
 
-        diff_by_sign = {k: 0 for k in "+-!"}
+        diff_by_sign: Dict[DiffOp, int] = {k: 0 for k in "+-!"}
         for sign in diff_by_key.values():
             diff_by_sign[sign] += 1
 
@@ -182,9 +187,10 @@ class DiffResultWrapper:
         return json_output
 
 
+@attrs.define(kw_only=True)
 class TableDiffer(ThreadBase, ABC):
     bisection_factor = 32
-    stats: dict = {}
+    stats: DifferStats = attrs.field(factory=dict)
 
     def diff_tables(self, table1: TableSegment, table2: TableSegment, info_tree: InfoTree = None) -> DiffResultWrapper:
         """Diff the given tables.
@@ -201,11 +207,15 @@ class TableDiffer(ThreadBase, ABC):
         """
         if info_tree is None:
             info_tree = InfoTree(SegmentInfo([table1, table2]))
-        return DiffResultWrapper(self._diff_tables_wrapper(table1, table2, info_tree), info_tree, self.stats)
+        return DiffResultWrapper(
+            diff=self._diff_tables_wrapper(table1, table2, info_tree),
+            info_tree=info_tree,
+            stats=self.stats,
+        )
 
-    def _diff_tables_wrapper(self, table1: TableSegment, table2: TableSegment, info_tree: InfoTree) -> DiffResult:
+    def _diff_tables_wrapper(self, table1: TableSegment, table2: TableSegment, info_tree: InfoTree) -> Iterable[DiffItem]:
         if is_tracking_enabled():
-            options = dict(self)
+            options = attrs.asdict(self)
             options["differ_name"] = type(self).__name__
             event_json = create_start_event_json(options)
             run_as_daemon(send_event_json, event_json)
@@ -214,7 +224,7 @@ class TableDiffer(ThreadBase, ABC):
         error = None
         try:
             # Query and validate schema
-            table1, table2 = self._threaded_call("with_schema", [table1, table2])
+            table1, table2 = self._thread_call(table1.with_schema, table2.with_schema)
             self._validate_and_adjust_columns(table1, table2)
 
             yield from self._diff_tables_root(table1, table2, info_tree)
@@ -246,10 +256,10 @@ class TableDiffer(ThreadBase, ABC):
             if error:
                 raise error
 
-    def _validate_and_adjust_columns(self, table1: TableSegment, table2: TableSegment) -> DiffResult:
-        pass
+    def _validate_and_adjust_columns(self, table1: TableSegment, table2: TableSegment) -> Iterable[DiffItem]:
+        yield from ()  # to make the function an empty generator
 
-    def _diff_tables_root(self, table1: TableSegment, table2: TableSegment, info_tree: InfoTree) -> DiffResult:
+    def _diff_tables_root(self, table1: TableSegment, table2: TableSegment, info_tree: InfoTree) -> Iterable[DiffItem]:
         return self._bisect_and_diff_tables(table1, table2, info_tree)
 
     @abstractmethod
@@ -260,13 +270,17 @@ class TableDiffer(ThreadBase, ABC):
         table2: TableSegment,
         info_tree: InfoTree,
         max_rows: int,
-        level=0,
-        segment_index=None,
-        segment_count=None,
-    ):
-        ...
+        # TODO: these three must be a single class which addresses the segment, including its parents!
+        #       e.g. [5/32, 13/32, 12/16] for the 3rd level's 12th segment.
+        #       And log them accordingly, in full, since in threaded mode it is unclear who is who.
+        #       MAYBE even a part of TableSegments above, e.g. TableSegment.path, to avoid duplication.
+        level: int = 0,
+        segment_index: Optional[int] = None,
+        segment_count: Optional[int] = None,
+    ) -> Iterable[DiffItem]:
+        raise NotImplementedError
 
-    def _bisect_and_diff_tables(self, table1: TableSegment, table2: TableSegment, info_tree):
+    def _bisect_and_diff_tables(self, table1: TableSegment, table2: TableSegment, info_tree) -> Iterable[DiffItem]:
         if len(table1.key_columns) != len(table2.key_columns):
             raise ValueError("Tables should have an equivalent number of key columns!")
 
@@ -282,12 +296,13 @@ class TableDiffer(ThreadBase, ABC):
                 raise TypeError(f"Incompatible key types: {kt1} and {kt2}")
 
         # Query min/max values
-        key_ranges = self._threaded_call_as_completed("query_key_range", [table1, table2])
+        key_ranges = self._thread_as_completed(table1.query_key_range, table2.query_key_range)
 
         # Start with the first completed value, so we don't waste time waiting
         min_key1, max_key1 = self._parse_key_range_result(key_types1, next(key_ranges))
 
-        btable1, btable2 = [t.new_key_bounds(min_key=min_key1, max_key=max_key1) for t in (table1, table2)]
+        btable1 = table1.new_key_bounds(min_key=min_key1, max_key=max_key1)
+        btable2 = table2.new_key_bounds(min_key=min_key1, max_key=max_key1)
 
         logger.info(
             f"Diffing segments at key-range: {btable1.min_key}..{btable2.max_key}. "
@@ -296,7 +311,13 @@ class TableDiffer(ThreadBase, ABC):
 
         ti = ThreadedYielder(self.max_threadpool_size)
         # Bisect (split) the table into segments, and diff them recursively.
-        ti.submit(self._bisect_and_diff_segments, ti, btable1, btable2, info_tree)
+        ti.submit(partial(
+            self._bisect_and_diff_segments,
+            ti=ti,
+            table1=btable1,
+            table2=btable2,
+            info_tree=info_tree,
+        ))
 
         # Now we check for the second min-max, to diff the portions we "missed".
         # This is achieved by subtracting the table ranges, and dividing the resulting space into aligned boxes.
@@ -314,13 +335,18 @@ class TableDiffer(ThreadBase, ABC):
         min_key2, max_key2 = self._parse_key_range_result(key_types1, next(key_ranges))
 
         points = [list(sorted(p)) for p in safezip(min_key1, min_key2, max_key1, max_key2)]
-        box_mesh = create_mesh_from_points(*points)
+        box_mesh: Collection[Range] = create_mesh_from_points(*points)
 
-        new_regions = [(p1, p2) for p1, p2 in box_mesh if p1 < p2 and not (p1 >= min_key1 and p2 <= max_key1)]
+        new_regions = [range for range in box_mesh if range.start < range.end and not (range.start >= min_key1 and range.end <= max_key1)]
 
-        for p1, p2 in new_regions:
-            extra_tables = [t.new_key_bounds(min_key=p1, max_key=p2) for t in (table1, table2)]
-            ti.submit(self._bisect_and_diff_segments, ti, *extra_tables, info_tree)
+        for range in new_regions:
+            ti.submit(partial(
+                self._bisect_and_diff_segments,
+                ti=ti,
+                table1=table1.new_key_bounds(min_key=range.start, max_key=range.end),
+                table2=table2.new_key_bounds(min_key=range.start, max_key=range.end),
+                info_tree=info_tree,
+            ))
 
         return ti
 
@@ -343,12 +369,12 @@ class TableDiffer(ThreadBase, ABC):
         table2: TableSegment,
         info_tree: InfoTree,
         level=0,
-        max_rows=None,
-    ):
+        max_rows: Optional[int] = None,
+    ) -> None:
         assert table1.is_bounded and table2.is_bounded
 
         # Choose evenly spaced checkpoints (according to min_key and max_key)
-        biggest_table = max(table1, table2, key=methodcaller("approximate_size"))
+        biggest_table = table1 if table1.approximate_size() >= table2.approximate_size() else table2
         checkpoints = biggest_table.choose_checkpoints(self.bisection_factor - 1)
 
         # Create new instances of TableSegment between each checkpoint
@@ -358,6 +384,14 @@ class TableDiffer(ThreadBase, ABC):
         # Recursively compare each pair of corresponding segments between table1 and table2
         for i, (t1, t2) in enumerate(safezip(segmented1, segmented2)):
             info_node = info_tree.add_node(t1, t2, max_rows=max_rows)
-            ti.submit(
-                self._diff_segments, ti, t1, t2, info_node, max_rows, level + 1, i + 1, len(segmented1), priority=level
-            )
+            ti.submit(partial(
+                self._diff_segments,
+                ti=ti,
+                table1=t1,
+                table2=t2,
+                info_tree=info_node,
+                max_rows=max_rows,
+                level=level + 1,
+                segment_index=i + 1,
+                segment_count=len(segmented1),
+            ), priority=level)

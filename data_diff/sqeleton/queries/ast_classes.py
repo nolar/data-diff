@@ -2,6 +2,8 @@ from dataclasses import field
 from datetime import datetime
 from typing import Any, Generator, List, Optional, Sequence, Union, Dict
 
+from typing_extensions import Self
+
 from runtype import dataclass
 
 from ..utils import join_iter, ArithString
@@ -100,7 +102,7 @@ class ITable(AbstractTable):
         resolve_names(self.source_table, exprs)
         return Select.make(self, columns=exprs, distinct=distinct, optimizer_hints=optimizer_hints)
 
-    def where(self, *exprs):
+    def where(self, *exprs) -> "ITable":
         exprs = args_as_tuple(exprs)
         exprs = _drop_skips(exprs)
         if not exprs:
@@ -322,7 +324,7 @@ class CaseWhen(ExprNode):
             return QB_When(self, whens[0])
         return QB_When(self, BinBoolOp("AND", whens))
 
-    def else_(self, then: Expr):
+    def else_(self: Self, then: Expr) -> Self:
         """Add an 'else' clause to the case expression.
 
         Can only be called once!
@@ -446,7 +448,7 @@ class TablePath(ExprNode, ITable):
             source_table = source_table.select()
         return CreateTable(self, source_table, if_not_exists=if_not_exists, primary_keys=primary_keys)
 
-    def drop(self, if_exists=False):
+    def drop(self, if_exists=False) -> "DropTable":
         """Returns a query expression to delete the table.
 
         Parameters:
@@ -740,7 +742,7 @@ class Select(ExprNode, ITable, Root):
         return select
 
     @classmethod
-    def make(cls, table: ITable, distinct: bool = SKIP, optimizer_hints: str = SKIP, **kwargs):
+    def make(cls, table: ITable, distinct: bool = SKIP, optimizer_hints: str = SKIP, **kwargs) -> ITable:
         assert "table" not in kwargs
 
         if not isinstance(table, cls):  # If not Select

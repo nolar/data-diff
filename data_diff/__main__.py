@@ -5,13 +5,17 @@ import sys
 import time
 import json
 import logging
+from functools import partial
 from itertools import islice
-from typing import Dict, Optional
+from typing import Dict, Literal, Optional, Tuple
 
 import rich
 from rich.logging import RichHandler
 import click
 
+from data_diff import DbPath
+from data_diff.sqeleton.abcs import AbstractDatabase
+from data_diff.sqeleton.queries.ast_classes import TablePath
 from data_diff.sqeleton.schema import create_schema
 from data_diff.sqeleton.queries.api import current_timestamp
 
@@ -68,7 +72,7 @@ def _remove_passwords_in_dict(d: dict):
             d[k] = remove_password_from_url(v)
 
 
-def _get_schema(pair):
+def _get_schema(pair: Tuple[AbstractDatabase, DbPath]):
     db, table_path = pair
     return db.query_table_schema(table_path)
 
@@ -339,7 +343,7 @@ def _data_diff(
     update_column,
     columns,
     limit,
-    algorithm,
+    algorithm: Literal["auto", "joindiff", "hashdiff"],
     bisection_factor,
     bisection_threshold,
     min_age,
@@ -458,7 +462,10 @@ def _data_diff(
     table_names = table1, table2
     table_paths = [db.parse_table_name(t) for db, t in safezip(dbs, table_names)]
 
-    schemas = list(differ._thread_map(_get_schema, safezip(dbs, table_paths)))
+    schemas = list(differ._thread_call(
+        partial(_get_schema, (dbs[0], table_paths[0])),
+        partial(_get_schema, (dbs[1], table_paths[1])),
+    ))
     schema1, schema2 = schemas = [
         create_schema(db, table_path, schema, case_sensitive)
         for db, table_path, schema in safezip(dbs, table_paths, schemas)

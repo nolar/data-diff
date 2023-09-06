@@ -1,3 +1,4 @@
+import logging
 import itertools
 from queue import PriorityQueue
 from collections import deque
@@ -5,7 +6,7 @@ from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures.thread import _WorkItem
 from time import sleep
-from typing import Callable, Iterator, Optional
+from typing import Any, Callable, Generator, Literal, Optional, Sequence, Tuple
 
 
 class AutoPriorityQueue(PriorityQueue):
@@ -38,7 +39,13 @@ class PriorityThreadPoolExecutor(ThreadPoolExecutor):
         self._work_queue = AutoPriorityQueue()
 
 
-class ThreadedYielder(Iterable):
+# "!" means duplicated PKs, and is used only in stats calculation, never yielded.
+DiffOp = Literal["+", "-", "!"]
+DiffRow = Sequence[Any]
+DiffItem = Tuple[DiffOp, DiffRow]
+
+
+class ThreadedYielder(Iterable[DiffItem]):
     """Yields results from multiple threads into a single iterator, ordered by priority.
 
     To add a source iterator, call ``submit()`` with a function that returns an iterator.
@@ -59,10 +66,10 @@ class ThreadedYielder(Iterable):
         except Exception as e:
             self._exception = e
 
-    def submit(self, fn: Callable, *args, priority: int = 0, **kwargs):
-        self._futures.append(self._pool.submit(self._worker, fn, *args, priority=priority, **kwargs))
+    def submit(self, fn: Callable[[], Optional[Iterable[DiffItem]]], priority: int = 0):
+        self._futures.append(self._pool.submit(self._worker, fn, priority=priority))
 
-    def __iter__(self) -> Iterator:
+    def __iter__(self) -> Generator[DiffItem, None, None]:
         while True:
             if self._exception:
                 raise self._exception

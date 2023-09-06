@@ -115,7 +115,7 @@ def exists(expr: Expr):
     return Func("exists", [expr])
 
 
-def if_(cond: Expr, then: Expr, else_: Optional[Expr] = None):
+def if_(cond: Expr, then: Expr, else_: Optional[Expr] = None) -> CaseWhen:
     """Conditional expression, shortcut to when-then-else.
 
     Example:
@@ -127,7 +127,7 @@ def if_(cond: Expr, then: Expr, else_: Optional[Expr] = None):
     return when(cond).then(then).else_(else_)
 
 
-def when(*when_exprs: Expr):
+def when(*when_exprs: Expr) -> QB_When:
     """Start a when-then expression
 
     Example:
