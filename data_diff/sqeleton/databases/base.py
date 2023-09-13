@@ -10,7 +10,7 @@ from abc import abstractmethod
 from uuid import UUID
 import decimal
 
-from runtype import dataclass
+import attrs
 
 from ..utils import is_uuid, safezip, Self
 from ..queries import Expr, Compiler, table, Select, SKIP, Explain, Code, this
@@ -294,7 +294,7 @@ class BaseDialect(AbstractDialect):
 T = TypeVar("T", bound=BaseDialect)
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class QueryResult:
     rows: list
     columns: list = None
@@ -309,6 +309,7 @@ class QueryResult:
         return self.rows[i]
 
 
+@attrs.define(kw_only=True, frozen=False)
 class Database(AbstractDatabase[T]):
     """Base abstract class for databases.
 
@@ -331,7 +332,7 @@ class Database(AbstractDatabase[T]):
         return type(self).__name__
 
     def compile(self, sql_ast):
-        compiler = Compiler(self)
+        compiler = Compiler(database=self)
         return compiler.compile(sql_ast)
 
     def query(self, sql_ast: Union[Expr, Generator], res_type: type = None):
@@ -342,7 +343,7 @@ class Database(AbstractDatabase[T]):
         It's a cleaner approach than exposing cursors, but may not be enough in all cases.
         """
 
-        compiler = Compiler(self)
+        compiler = Compiler(database=self)
         if isinstance(sql_ast, Generator):
             sql_code = ThreadLocalInterpreter(compiler, sql_ast)
         elif isinstance(sql_ast, list):
@@ -528,7 +529,7 @@ class Database(AbstractDatabase[T]):
                 columns = [col[0] for col in c.description]
 
                 fetched = c.fetchall()
-                result = QueryResult(fetched, columns)
+                result = QueryResult(rows=fetched, columns=columns)
                 return result
         except Exception as _e:
             # logger.exception(e)
@@ -559,6 +560,7 @@ class Database(AbstractDatabase[T]):
         return _DatabaseWithMixins
 
 
+@attrs.define(kw_only=True, frozen=False, init=False)
 class ThreadedDatabase(Database):
     """Access the database through singleton threads.
 

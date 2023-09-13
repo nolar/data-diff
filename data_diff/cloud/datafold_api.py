@@ -1,9 +1,9 @@
 import base64
-import dataclasses
 import enum
 import time
 from typing import Any, Dict, List, Optional, Type, TypeVar, Tuple
 
+import attrs
 import pydantic
 import requests
 
@@ -180,13 +180,13 @@ class TCloudApiDataSourceTestResult(pydantic.BaseModel):
     result: Optional[TCloudDataSourceTestResult]
 
 
-@dataclasses.dataclass
+@attrs.define(kw_only=True, frozen=False)
 class DatafoldAPI:
     api_key: str
     host: str = "https://app.datafold.com"
     timeout: int = 30
 
-    def __post_init__(self):
+    def __attrs_post_init__(self) -> None:
         self.host = self.host.rstrip("/")
         self.headers = {
             "Authorization": f"Key {self.api_key}",

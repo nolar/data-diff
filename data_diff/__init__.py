@@ -37,7 +37,7 @@ def connect_to_table(
     if isinstance(table_name, str):
         table_name = db.parse_table_name(table_name)
 
-    return TableSegment(db, table_name, key_columns, **kwargs)
+    return TableSegment(database=db, table_path=table_name, key_columns=key_columns, **kwargs)
 
 
 def diff_tables(

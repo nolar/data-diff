@@ -1,9 +1,8 @@
 import random
-from dataclasses import field
 from datetime import datetime
 from typing import Any, Dict, Sequence, List
 
-from runtype import dataclass
+import attrs
 
 from ..utils import ArithString
 from ..abcs import AbstractDatabase, AbstractDialect, DbPath, AbstractCompiler, Compilable
@@ -17,22 +16,23 @@ class CompileError(Exception):
     pass
 
 
+@attrs.define(kw_only=True, frozen=True)
 class Root:
     "Nodes inheriting from Root can be used as root statements in SQL (e.g. SELECT yes, RANDOM() no)"
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class Compiler(AbstractCompiler):
     database: AbstractDatabase
-    params: dict = field(default_factory=dict)
+    params: dict = attrs.field(factory=dict)
     in_select: bool = False  # Compilation runtime flag
     in_join: bool = False  # Compilation runtime flag
 
-    _table_context: List = field(default_factory=list)  # List[ITable]
-    _subqueries: Dict[str, Any] = field(default_factory=dict)  # XXX not thread-safe
+    _table_context: List = attrs.field(factory=list)  # List[ITable]
+    _subqueries: Dict[str, Any] = attrs.field(factory=dict)  # XXX not thread-safe
     root: bool = True
 
-    _counter: List = field(default_factory=lambda: [0])
+    _counter: List = attrs.field(factory=lambda: [0])
 
     @property
     def dialect(self) -> AbstractDialect:
@@ -58,7 +58,7 @@ class Compiler(AbstractCompiler):
         if elem is None:
             return "NULL"
         elif isinstance(elem, Compilable):
-            return elem.compile(self.replace(root=False))
+            return elem.compile(attrs.evolve(self, root=False))
         elif isinstance(elem, str):
             return f"'{elem}'"
         elif isinstance(elem, (int, float)):
@@ -80,7 +80,7 @@ class Compiler(AbstractCompiler):
         return self.database.parse_table_name(f"{prefix}{self._counter[0]}_{'%x'%random.randrange(2**32)}")
 
     def add_table_context(self, *tables: Sequence, **kw):
-        return self.replace(_table_context=self._table_context + list(tables), **kw)
+        return attrs.evolve(self, table_context=self._table_context + list(tables), **kw)
 
     def quote(self, s: str):
         return self.dialect.quote(s)

@@ -2,7 +2,6 @@
 """
 import time
 from abc import ABC, abstractmethod
-from dataclasses import field
 from enum import Enum
 from contextlib import contextmanager
 from functools import partial
@@ -12,7 +11,6 @@ from typing import Any, Callable, Collection, Dict, Generator, Iterable, List, S
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import attrs
-from runtype import dataclass
 
 from data_diff.info_tree import InfoTree, SegmentInfo
 
@@ -77,7 +75,7 @@ class ThreadBase:
                 f.result()
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class DiffStats:
     diff_by_sign: Dict[DiffOp, int]
     table1_count: int
@@ -215,7 +213,7 @@ class TableDiffer(ThreadBase, ABC):
 
     def _diff_tables_wrapper(self, table1: TableSegment, table2: TableSegment, info_tree: InfoTree) -> Iterable[DiffItem]:
         if is_tracking_enabled():
-            options = attrs.asdict(self)
+            options = attrs.asdict(self, recurse=False)
             options["differ_name"] = type(self).__name__
             event_json = create_start_event_json(options)
             run_as_daemon(send_event_json, event_json)

@@ -1,7 +1,8 @@
 "Useful AST classes that don't quite fall within the scope of regular SQL"
 
 from typing import Callable, Sequence
-from runtype import dataclass
+
+import attrs
 
 from ..abcs.database_types import ColType, Native_UUID
 
@@ -9,18 +10,21 @@ from .compiler import Compiler
 from .ast_classes import Expr, ExprNode, Concat, Code
 
 
-@dataclass
+@attrs.define(kw_only=False, frozen=True)
 class NormalizeAsString(ExprNode):
     expr: ExprNode
     expr_type: ColType = None
-    type = str
+    # type = str
+    @property
+    def type(self):
+        return str
 
     def compile(self, c: Compiler) -> str:
         expr = c.compile(self.expr)
         return c.dialect.normalize_value_by_type(expr, self.expr_type or self.expr.type)
 
 
-@dataclass
+@attrs.define(kw_only=False, frozen=True)
 class ApplyFuncAndNormalizeAsString(ExprNode):
     expr: ExprNode
     apply_func: Callable = None
@@ -45,7 +49,7 @@ class ApplyFuncAndNormalizeAsString(ExprNode):
         return c.compile(expr)
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class Checksum(ExprNode):
     exprs: Sequence[Expr]
 

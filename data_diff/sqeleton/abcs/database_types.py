@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from typing import Sequence, Optional, Tuple, Union, Dict, List
 from datetime import datetime
 
-from runtype import dataclass
+import attrs
 
 from ..utils import ArithAlphanumeric, ArithUUID, Self, Unknown
 
@@ -13,55 +13,64 @@ DbKey = Union[int, str, bytes, ArithUUID, ArithAlphanumeric]
 DbTime = datetime
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class ColType:
     supported = True
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class PrecisionType(ColType):
     precision: int
     rounds: Union[bool, Unknown] = Unknown
 
 
+@attrs.define(kw_only=True, frozen=True)
 class Boolean(ColType):
     precision = 0
 
 
+@attrs.define(kw_only=True, frozen=True)
 class TemporalType(PrecisionType):
     pass
 
 
+@attrs.define(kw_only=True, frozen=True)
 class Timestamp(TemporalType):
     pass
 
 
+@attrs.define(kw_only=True, frozen=True)
 class TimestampTZ(TemporalType):
     pass
 
 
+@attrs.define(kw_only=True, frozen=True)
 class Datetime(TemporalType):
     pass
 
 
+@attrs.define(kw_only=True, frozen=True)
 class Date(TemporalType):
     pass
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class NumericType(ColType):
     # 'precision' signifies how many fractional digits (after the dot) we want to compare
     precision: int
 
 
+@attrs.define(kw_only=True, frozen=True)
 class FractionalType(NumericType):
     pass
 
 
+@attrs.define(kw_only=True, frozen=True)
 class Float(FractionalType):
     python_type = float
 
 
+# @attrs.define(kw_only=True, frozen=True)
 class IKey(ABC):
     "Interface for ColType, for using a column as a key in table."
 
@@ -74,6 +83,7 @@ class IKey(ABC):
         return self.python_type(value)
 
 
+@attrs.define(kw_only=True, frozen=True)
 class Decimal(FractionalType, IKey):  # Snowflake may use Decimal as a key
     @property
     def python_type(self) -> type:
@@ -82,27 +92,32 @@ class Decimal(FractionalType, IKey):  # Snowflake may use Decimal as a key
         return decimal.Decimal
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class StringType(ColType):
     python_type = str
 
 
+@attrs.define(kw_only=True, frozen=True)
 class ColType_UUID(ColType, IKey):
     python_type = ArithUUID
 
 
+@attrs.define(kw_only=True, frozen=True)
 class ColType_Alphanum(ColType, IKey):
     python_type = ArithAlphanumeric
 
 
+@attrs.define(kw_only=True, frozen=True)
 class Native_UUID(ColType_UUID):
     pass
 
 
+@attrs.define(kw_only=True, frozen=True)
 class String_UUID(ColType_UUID, StringType):
     pass
 
 
+@attrs.define(kw_only=True, frozen=True)
 class String_Alphanum(ColType_Alphanum, StringType):
     @staticmethod
     def test_value(value: str) -> bool:
@@ -116,11 +131,12 @@ class String_Alphanum(ColType_Alphanum, StringType):
         return self.python_type(value)
 
 
+@attrs.define(kw_only=True, frozen=True)
 class String_VaryingAlphanum(String_Alphanum):
     pass
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class String_FixedAlphanum(String_Alphanum):
     length: int
 
@@ -130,18 +146,18 @@ class String_FixedAlphanum(String_Alphanum):
         return self.python_type(value, max_len=self.length)
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class Text(StringType):
     supported = False
 
 
 # In majority of DBMSes, it is called JSON/JSONB. Only in Snowflake, it is OBJECT.
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class JSON(ColType):
     pass
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class Array(ColType):
     item_type: ColType
 
@@ -151,27 +167,28 @@ class Array(ColType):
 # For example, in BigQuery:
 # - https://cloud.google.com/bigquery/docs/reference/standard-sql/data-types#struct_type
 # - https://cloud.google.com/bigquery/docs/reference/standard-sql/lexical#struct_literals
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class Struct(ColType):
     pass
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class Integer(NumericType, IKey):
     precision: int = 0
     python_type: type = int
 
-    def __post_init__(self):
+    def __attrs_post_init__(self) -> None:
         assert self.precision == 0
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class UnknownColType(ColType):
     text: str
 
     supported = False
 
 
+@attrs.define(kw_only=True, frozen=True)
 class AbstractDialect(ABC):
     """Dialect-dependent query expressions"""
 
@@ -263,7 +280,9 @@ from typing import TypeVar, Generic
 T_Dialect = TypeVar("T_Dialect", bound=AbstractDialect)
 
 
+@attrs.define(kw_only=True, frozen=False)
 class AbstractDatabase(Generic[T_Dialect]):
+
     @property
     @abstractmethod
     def dialect(self) -> T_Dialect:
@@ -332,7 +351,12 @@ class AbstractDatabase(Generic[T_Dialect]):
         "Return whether the database autocommits changes. When false, COMMIT statements are skipped."
 
 
+# TODO: it was just an interface! not a dataclass
+#       use Protocol for this! but ensure we have slots!
+#       Breaking point: TablePath(path, schema) - it was trying to fill 2 arguments when 3 were required
+# @attrs.define(kw_only=True, frozen=True)
 class AbstractTable(ABC):
+
     @abstractmethod
     def select(self, *exprs, distinct=False, **named_exprs) -> "AbstractTable":
         """Choose new columns, based on the old ones. (aka Projection)

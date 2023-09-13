@@ -246,7 +246,7 @@ class BigQuery(Database):
 
         if rows and isinstance(rows[0], bigquery.table.Row):
             rows = [tuple(self._normalize_returned_value(v) for v in row.values()) for row in rows]
-        return QueryResult(rows, columns)
+        return QueryResult(rows=rows, columns=columns)
 
     def _query(self, sql_code: Union[str, ThreadLocalInterpreter]) -> QueryResult:
         return apply_query(self._query_atom, sql_code)

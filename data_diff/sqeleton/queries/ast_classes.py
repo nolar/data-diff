@@ -1,10 +1,8 @@
-from dataclasses import field
 from datetime import datetime
 from typing import Any, Generator, List, Optional, Sequence, Union, Dict
 
+import attrs
 from typing_extensions import Self
-
-from runtype import dataclass
 
 from ..utils import join_iter, ArithString
 from ..abcs import Compilable
@@ -24,14 +22,21 @@ class QB_TypeError(QueryBuilderError):
     pass
 
 
+@attrs.define(kw_only=True, frozen=False)
 class ExprNode(Compilable):
     "Base class for query expression nodes"
 
-    type: Any = None
+    # TODO: WHAT is that? Where is it set? I could find nothing.
+    #       Where is it used (except for propagation)?
+    #       Can it be made an overrideable r/o property instead of a dynamic field?
+    # type: Any = None
+    @property
+    def type(self) -> Any:
+        return None
 
     def _dfs_values(self):
         yield self
-        for k, vs in dict(self).items():  # __dict__ provided by runtype.dataclass
+        for k, vs in attrs.asdict(self, recurse=False).items():
             if k == "source_table":
                 # Skip data-sources, we're only interested in data-parameters
                 continue
@@ -49,7 +54,7 @@ class ExprNode(Compilable):
 Expr = Union[ExprNode, str, bool, int, float, datetime, ArithString, None]
 
 
-@dataclass
+@attrs.define(kw_only=False, frozen=True)
 class Code(ExprNode, Root):
     code: str
     args: Dict[str, Expr] = None
@@ -68,7 +73,7 @@ def _expr_type(e: Expr) -> type:
     return type(e)
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class Alias(ExprNode):
     expr: Expr
     name: str
@@ -89,6 +94,10 @@ def _drop_skips_dict(exprs_dict):
     return {k: v for k, v in exprs_dict.items() if v is not SKIP}
 
 
+# TODO: it was just an interface! not a dataclass
+#       use Protocol for this! but ensure we have slots!
+#       Breaking point: TablePath(path, schema) - it was trying to fill 2 arguments when 3 were required
+# @attrs.define(kw_only=True, frozen=True)
 class ITable(AbstractTable):
     source_table: Any
     schema: Schema = None
@@ -127,7 +136,7 @@ class ITable(AbstractTable):
 
     def join(self, target: "ITable"):
         """Join this table with the target table."""
-        return Join([self, target])
+        return Join(source_tables=[self, target])
 
     def group_by(self, *keys) -> "GroupBy":
         """Group according to the given keys.
@@ -137,12 +146,12 @@ class ITable(AbstractTable):
         keys = _drop_skips(keys)
         resolve_names(self.source_table, keys)
 
-        return GroupBy(self, keys)
+        return GroupBy(table=self, keys=keys)
 
     def _get_column(self, name: str):
         if self.schema:
             name = self.schema.get_key(name)  # Get the actual name. Might be case-insensitive.
-        return Column(self, name)
+        return Column(source_table=self, name=name)
 
     # def __getattr__(self, column):
     #     return self._get_column(column)
@@ -153,7 +162,7 @@ class ITable(AbstractTable):
         return self._get_column(column)
 
     def count(self):
-        return Select(self, [Count()])
+        return Select(table=self, columns=[Count()])
 
     def union(self, other: "ITable"):
         """SELECT * FROM self UNION other"""
@@ -173,7 +182,7 @@ class ITable(AbstractTable):
         return TableOp("INTERSECT", self, other)
 
 
-@dataclass
+@attrs.define(kw_only=False, frozen=True)
 class Concat(ExprNode):
     exprs: list
     sep: str = None
@@ -190,12 +199,15 @@ class Concat(ExprNode):
         return c.dialect.concat(items)
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class Count(ExprNode):
     expr: Expr = None
     distinct: bool = False
 
-    type = int
+    # type = int
+    @property
+    def type(self):
+        return int
 
     def compile(self, c: Compiler) -> str:
         expr = c.compile(self.expr) if self.expr else "*"
@@ -205,6 +217,7 @@ class Count(ExprNode):
         return f"count({expr})"
 
 
+@attrs.define(kw_only=True, frozen=False)
 class LazyOps:
     def __add__(self, other):
         return BinOp("+", [self, other])
@@ -245,7 +258,7 @@ class LazyOps:
         return BinBoolOp("LIKE", [self, other])
 
     def test_regex(self, other):
-        return TestRegex(self, other)
+        return TestRegex(string=self, pattern=other)
 
     def sum(self):
         return Func("SUM", [self])
@@ -257,7 +270,7 @@ class LazyOps:
         return Func("MIN", [self])
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class TestRegex(ExprNode, LazyOps):
     string: Expr
     pattern: Expr
@@ -269,7 +282,7 @@ class TestRegex(ExprNode, LazyOps):
         return c.compile(regex)
 
 
-@dataclass(eq=False)
+@attrs.define(kw_only=False, frozen=True, eq=False)
 class Func(ExprNode, LazyOps):
     name: str
     args: Sequence[Expr]
@@ -279,7 +292,7 @@ class Func(ExprNode, LazyOps):
         return f"{self.name}({args})"
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class WhenThen(ExprNode):
     when: Expr
     then: Expr
@@ -288,7 +301,7 @@ class WhenThen(ExprNode):
         return f"WHEN {c.compile(self.when)} THEN {c.compile(self.then)}"
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class CaseWhen(ExprNode):
     cases: Sequence[WhenThen]
     else_expr: Expr = None
@@ -321,8 +334,8 @@ class CaseWhen(ExprNode):
 
         # XXX reimplementing api.and_()
         if len(whens) == 1:
-            return QB_When(self, whens[0])
-        return QB_When(self, BinBoolOp("AND", whens))
+            return QB_When(casewhen=self, when=whens[0])
+        return QB_When(casewhen=self, when=BinBoolOp("AND", whens))
 
     def else_(self: Self, then: Expr) -> Self:
         """Add an 'else' clause to the case expression.
@@ -332,10 +345,10 @@ class CaseWhen(ExprNode):
         if self.else_expr is not None:
             raise QueryBuilderError(f"Else clause already specified in {self}")
 
-        return self.replace(else_expr=then)
+        return attrs.evolve(self, else_expr=then)
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class QB_When:
     "Partial case-when, used for query-building"
     casewhen: CaseWhen
@@ -343,15 +356,18 @@ class QB_When:
 
     def then(self, then: Expr) -> CaseWhen:
         """Add a 'then' clause after a 'when' was added."""
-        case = WhenThen(self.when, then)
-        return self.casewhen.replace(cases=self.casewhen.cases + [case])
+        case = WhenThen(when=self.when, then=then)
+        return attrs.evolve(self.casewhen, cases=self.casewhen.cases + [case])
 
 
-@dataclass(eq=False, order=False)
+@attrs.define(kw_only=False, frozen=True, eq=False, order=False)
 class IsDistinctFrom(ExprNode, LazyOps):
     a: Expr
     b: Expr
-    type = bool
+    # type = bool
+    @property
+    def type(self):
+        return bool
 
     def compile(self, c: Compiler) -> str:
         a = c.dialect.to_comparable(c.compile(self.a), self.a.type)
@@ -359,7 +375,7 @@ class IsDistinctFrom(ExprNode, LazyOps):
         return c.dialect.is_distinct_from(a, b)
 
 
-@dataclass(eq=False, order=False)
+@attrs.define(kw_only=False, frozen=True, eq=False, order=False)
 class BinOp(ExprNode, LazyOps):
     op: str
     args: Sequence[Expr]
@@ -377,7 +393,7 @@ class BinOp(ExprNode, LazyOps):
         return t
 
 
-@dataclass
+@attrs.define(kw_only=False, frozen=True)
 class UnaryOp(ExprNode, LazyOps):
     op: str
     expr: Expr
@@ -386,11 +402,15 @@ class UnaryOp(ExprNode, LazyOps):
         return f"({self.op}{c.compile(self.expr)})"
 
 
+@attrs.define(kw_only=False, frozen=True)
 class BinBoolOp(BinOp):
-    type = bool
+    # type = bool
+    @property
+    def type(self):
+        return bool
 
 
-@dataclass(eq=False, order=False)
+@attrs.define(kw_only=True, frozen=True, eq=False, order=False)
 class Column(ExprNode, LazyOps):
     source_table: ITable
     name: str
@@ -418,10 +438,10 @@ class Column(ExprNode, LazyOps):
         return c.quote(self.name)
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class TablePath(ExprNode, ITable):
     path: DbPath
-    schema: Optional[Schema] = field(default=None, repr=False)
+    schema: Optional[Schema] = attrs.field(default=None, repr=False)
 
     @property
     def source_table(self):
@@ -509,7 +529,8 @@ class TablePath(ExprNode, ITable):
             assert offset is None and statement is None
 
 
-@dataclass
+# TODO: multiple inheritance with attributes on both sides!
+@attrs.define(kw_only=True, frozen=True)
 class TableAlias(ExprNode, ITable):
     source_table: ITable
     name: str
@@ -518,7 +539,8 @@ class TableAlias(ExprNode, ITable):
         return f"{c.compile(self.source_table)} {c.quote(self.name)}"
 
 
-@dataclass
+# TODO: multiple inheritance with attributes on both sides!
+@attrs.define(kw_only=True, frozen=True)
 class Join(ExprNode, ITable, Root):
     source_tables: Sequence[ITable]
     op: str = None
@@ -546,7 +568,7 @@ class Join(ExprNode, ITable, Root):
         if not exprs:
             return self
 
-        return self.replace(on_exprs=(self.on_exprs or []) + exprs)
+        return attrs.evolve(self, on_exprs=(self.on_exprs or []) + exprs)
 
     def select(self, *exprs, **named_exprs) -> ITable:
         """Select fields to return from the JOIN operation
@@ -562,11 +584,11 @@ class Join(ExprNode, ITable, Root):
         exprs += _named_exprs_as_aliases(named_exprs)
         resolve_names(self.source_table, exprs)
         # TODO Ensure exprs <= self.columns ?
-        return self.replace(columns=exprs)
+        return attrs.evolve(self, columns=exprs)
 
     def compile(self, parent_c: Compiler) -> str:
         tables = [
-            t if isinstance(t, TableAlias) else TableAlias(t, parent_c.new_unique_name()) for t in self.source_tables
+            t if isinstance(t, TableAlias) else TableAlias(source_table=t, name=parent_c.new_unique_name()) for t in self.source_tables
         ]
         c = parent_c.add_table_context(*tables, in_join=True, in_select=False)
         op = " JOIN " if self.op is None else f" {self.op} JOIN "
@@ -588,7 +610,8 @@ class Join(ExprNode, ITable, Root):
         return select
 
 
-@dataclass
+# TODO: multiple inheritance with attributes on both sides!
+@attrs.define(kw_only=True, frozen=True)
 class GroupBy(ExprNode, ITable, Root):
     table: ITable
     keys: Sequence[Expr] = None  # IKey?
@@ -599,7 +622,7 @@ class GroupBy(ExprNode, ITable, Root):
     def source_table(self):
         return self
 
-    def __post_init__(self):
+    def __attrs_post_init__(self) -> None:
         assert self.keys or self.values
 
     def having(self, *exprs):
@@ -610,14 +633,14 @@ class GroupBy(ExprNode, ITable, Root):
             return self
 
         resolve_names(self.table, exprs)
-        return self.replace(having_exprs=(self.having_exprs or []) + exprs)
+        return attrs.evolve(self, having_exprs=(self.having_exprs or []) + exprs)
 
     def agg(self, *exprs):
         """Select aggregated fields for the group-by."""
         exprs = args_as_tuple(exprs)
         exprs = _drop_skips(exprs)
         resolve_names(self.table, exprs)
-        return self.replace(values=(self.values or []) + exprs)
+        return attrs.evolve(self, values=(self.values or []) + exprs)
 
     def compile(self, c: Compiler) -> str:
         if self.values is None:
@@ -627,7 +650,8 @@ class GroupBy(ExprNode, ITable, Root):
         columns = (self.keys or []) + (self.values or [])
         if isinstance(self.table, Select) and self.table.columns is None and self.table.group_by_exprs is None:
             return c.compile(
-                self.table.replace(
+                attrs.evolve(
+                    self.table,
                     columns=columns,
                     group_by_exprs=[Code(k) for k in keys],
                     having_exprs=self.having_exprs,
@@ -640,7 +664,7 @@ class GroupBy(ExprNode, ITable, Root):
             " HAVING " + " AND ".join(map(c.compile, self.having_exprs)) if self.having_exprs is not None else ""
         )
         select = (
-            f"SELECT {columns_str} FROM {c.replace(in_select=True).compile(self.table)} GROUP BY {keys_str}{having_str}"
+            f"SELECT {columns_str} FROM {attrs.evolve(c, in_select=True).compile(self.table)} GROUP BY {keys_str}{having_str}"
         )
 
         if c.in_select:
@@ -650,7 +674,7 @@ class GroupBy(ExprNode, ITable, Root):
         return select
 
 
-@dataclass
+@attrs.define(kw_only=False, frozen=True)
 class TableOp(ExprNode, ITable, Root):
     op: str
     table1: ITable
@@ -673,7 +697,7 @@ class TableOp(ExprNode, ITable, Root):
         return s1
 
     def compile(self, parent_c: Compiler) -> str:
-        c = parent_c.replace(in_select=False)
+        c = attrs.evolve(parent_c, in_select=False)
         table_expr = f"{c.compile(self.table1)} {self.op} {c.compile(self.table2)}"
         if parent_c.in_select:
             table_expr = f"({table_expr}) {c.new_unique_name()}"
@@ -682,17 +706,17 @@ class TableOp(ExprNode, ITable, Root):
         return table_expr
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class Select(ExprNode, ITable, Root):
-    table: Expr = None
-    columns: Sequence[Expr] = None
-    where_exprs: Sequence[Expr] = None
-    order_by_exprs: Sequence[Expr] = None
-    group_by_exprs: Sequence[Expr] = None
-    having_exprs: Sequence[Expr] = None
-    limit_expr: int = None
+    table: Optional[Expr] = None
+    columns: Optional[Sequence[Expr]] = None
+    where_exprs: Optional[Sequence[Expr]] = None
+    order_by_exprs: Optional[Sequence[Expr]] = None
+    group_by_exprs: Optional[Sequence[Expr]] = None
+    having_exprs: Optional[Sequence[Expr]] = None
+    limit_expr: Optional[int] = None
     distinct: bool = False
-    optimizer_hints: Sequence[Expr] = None
+    optimizer_hints: Optional[Sequence[Expr]] = None
 
     @property
     def schema(self):
@@ -706,7 +730,7 @@ class Select(ExprNode, ITable, Root):
         return self
 
     def compile(self, parent_c: Compiler) -> str:
-        c = parent_c.replace(in_select=True)  # .add_table_context(self.table)
+        c = attrs.evolve(parent_c, in_select=True)  # .add_table_context(self.table)
 
         columns = ", ".join(map(c.compile, self.columns)) if self.columns else "*"
         distinct = "DISTINCT " if self.distinct else ""
@@ -750,7 +774,7 @@ class Select(ExprNode, ITable, Root):
                 kwargs["distinct"] = distinct
             if optimizer_hints is not SKIP:
                 kwargs["optimizer_hints"] = optimizer_hints
-            return cls(table, **kwargs)
+            return cls(table=table, **kwargs)
 
         # We can safely assume isinstance(table, Select)
         if optimizer_hints is not SKIP:
@@ -758,11 +782,11 @@ class Select(ExprNode, ITable, Root):
 
         if distinct is not SKIP:
             if distinct == False and table.distinct:
-                return cls(table, **kwargs)
+                return cls(table=table, **kwargs)
             kwargs["distinct"] = distinct
 
         if table.limit_expr or table.group_by_exprs:
-            return cls(table, **kwargs)
+            return cls(table=table, **kwargs)
 
         # Fill in missing attributes, instead of nesting instances
         for k, v in kwargs.items():
@@ -774,17 +798,17 @@ class Select(ExprNode, ITable, Root):
                 else:
                     raise ValueError(k)
 
-        return table.replace(**kwargs)
+        return attrs.evolve(table, **kwargs)
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class Cte(ExprNode, ITable):
     source_table: Expr
     name: str = None
     params: Sequence[str] = None
 
     def compile(self, parent_c: Compiler) -> str:
-        c = parent_c.replace(_table_context=[], in_select=False)
+        c = attrs.evolve(parent_c, _table_context=[], in_select=False)
         compiled = c.compile(self.source_table)
 
         name = self.name or parent_c.new_unique_name()
@@ -800,7 +824,7 @@ class Cte(ExprNode, ITable):
 
 
 def _named_exprs_as_aliases(named_exprs):
-    return [Alias(expr, name) for name, expr in named_exprs.items()]
+    return [Alias(expr=expr, name=name) for name, expr in named_exprs.items()]
 
 
 def resolve_names(source_table, exprs):
@@ -808,17 +832,21 @@ def resolve_names(source_table, exprs):
     for expr in exprs:
         # Iterate recursively and update _ResolveColumn instances with the right expression
         if isinstance(expr, ExprNode):
-            for v in expr._dfs_values():
+            r = expr._dfs_values()
+            for v in r:
                 if isinstance(v, _ResolveColumn):
                     v.resolve(source_table._get_column(v.resolve_name))
                     i += 1
 
 
-@dataclass(frozen=False, eq=False, order=False)
+@attrs.define(kw_only=True, frozen=False, eq=False, order=False)
 class _ResolveColumn(ExprNode, LazyOps):
     resolve_name: str
     resolved: Expr = None
 
+    # TODO: we had to make the whole hierarch as non-frozen.
+    #       this should be a pure function that returns a new evolved object,
+    #       which is then substituted elsewhere.
     def resolve(self, expr: Expr):
         if self.resolved is not None:
             raise QueryBuilderError("Already resolved!")
@@ -848,27 +876,30 @@ class This:
     """
 
     def __getattr__(self, name):
-        return _ResolveColumn(name)
+        return _ResolveColumn(resolve_name=name)
 
     def __getitem__(self, name):
         if isinstance(name, (list, tuple)):
-            return [_ResolveColumn(n) for n in name]
-        return _ResolveColumn(name)
+            return [_ResolveColumn(resolve_name=n) for n in name]
+        return _ResolveColumn(resolve_name=name)
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class In(ExprNode):
     expr: Expr
     list: Sequence[Expr]
 
-    type = bool
+    # type = bool
+    @property
+    def type(self):
+        return bool
 
     def compile(self, c: Compiler):
         elems = ", ".join(map(c.compile, self.list))
         return f"({c.compile(self.expr)} IN ({elems}))"
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class Cast(ExprNode):
     expr: Expr
     target_type: Expr
@@ -877,15 +908,18 @@ class Cast(ExprNode):
         return f"cast({c.compile(self.expr)} as {c.compile(self.target_type)})"
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class Random(ExprNode, LazyOps):
-    type = float
+    # type = float
+    @property
+    def type(self):
+        return float
 
     def compile(self, c: Compiler) -> str:
         return c.dialect.random()
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class ConstantTable(ExprNode):
     rows: Sequence[Sequence]
 
@@ -896,24 +930,30 @@ class ConstantTable(ExprNode):
         return c.dialect.constant_values(self.rows)
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class Explain(ExprNode, Root):
     select: Select
 
-    type = str
+    # type = str
+    @property
+    def type(self):
+        return str
 
     def compile(self, c: Compiler) -> str:
         return c.dialect.explain_as_text(c.compile(self.select))
 
 
 class CurrentTimestamp(ExprNode):
-    type = datetime
+    # type = datetime
+    @property
+    def type(self):
+        return datetime
 
     def compile(self, c: Compiler) -> str:
         return c.dialect.current_timestamp()
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class TimeTravel(ITable):
     table: TablePath
     before: bool = False
@@ -933,11 +973,15 @@ class TimeTravel(ITable):
 # DDL
 
 
+@attrs.define(kw_only=True, frozen=True)
 class Statement(Compilable, Root):
-    type = None
+    # type = None
+    @property
+    def type(self):
+        return None
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class CreateTable(Statement):
     path: TablePath
     source_table: Expr = None
@@ -958,7 +1002,7 @@ class CreateTable(Statement):
         return f"CREATE TABLE {ne}{c.compile(self.path)}({schema}{pks})"
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class DropTable(Statement):
     path: TablePath
     if_exists: bool = False
@@ -968,7 +1012,7 @@ class DropTable(Statement):
         return f"DROP TABLE {ie}{c.compile(self.path)}"
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class TruncateTable(Statement):
     path: TablePath
 
@@ -976,7 +1020,7 @@ class TruncateTable(Statement):
         return f"TRUNCATE TABLE {c.compile(self.path)}"
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class InsertToTable(Statement):
     path: TablePath
     expr: Expr
@@ -1007,10 +1051,10 @@ class InsertToTable(Statement):
             return self
 
         resolve_names(self.path, exprs)
-        return self.replace(returning_exprs=exprs)
+        return attrs.evolve(self, returning_exprs=exprs)
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class Commit(Statement):
     """Generate a COMMIT statement, if we're in the middle of a transaction, or in auto-commit. Otherwise SKIP."""
 
@@ -1018,7 +1062,7 @@ class Commit(Statement):
         return "COMMIT" if not c.database.is_autocommit else SKIP
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class Param(ExprNode, ITable):
     """A value placeholder, to be specified at compilation time using the `cv_params` context variable."""
 

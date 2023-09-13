@@ -1,11 +1,10 @@
 import os
-from dataclasses import field
 from numbers import Number
 import logging
 from collections import defaultdict
 from typing import Iterable, Iterator, Optional, TypedDict
 
-from runtype import dataclass
+import attrs
 
 from data_diff.sqeleton.abcs import ColType_UUID, NumericType, PrecisionType, StringType, Boolean, JSON
 
@@ -58,7 +57,7 @@ class HashDifferStats(TypedDict, total=True):
     rows_downloaded: int
 
 
-@dataclass
+@attrs.define(kw_only=True)
 class HashDiffer(TableDiffer):
     """Finds the diff between two SQL tables
 
@@ -79,9 +78,9 @@ class HashDiffer(TableDiffer):
     bisection_factor: int = DEFAULT_BISECTION_FACTOR
     bisection_threshold: Number = DEFAULT_BISECTION_THRESHOLD  # Accepts inf for tests
 
-    stats: HashDifferStats = field(default_factory=dict)
+    stats: HashDifferStats = attrs.field(factory=dict)
 
-    def __post_init__(self):
+    def __attrs_post_init__(self) -> None:
         # Validate options
         if self.bisection_factor >= self.bisection_threshold:
             raise ValueError("Incorrect param values (bisection factor must be lower than threshold)")
@@ -107,8 +106,8 @@ class HashDiffer(TableDiffer):
                 if col1.precision != col2.precision:
                     logger.warning(f"Using reduced precision {lowest} for column '{c1}'. Types={col1}, {col2}")
 
-                table1._schema[c1] = col1.replace(precision=lowest.precision, rounds=lowest.rounds)
-                table2._schema[c2] = col2.replace(precision=lowest.precision, rounds=lowest.rounds)
+                table1._schema[c1] = attrs.evolve(col1, precision=lowest.precision, rounds=lowest.rounds)
+                table2._schema[c2] = attrs.evolve(col2, precision=lowest.precision, rounds=lowest.rounds)
 
             elif isinstance(col1, (NumericType, Boolean)):
                 if not isinstance(col2, (NumericType, Boolean)):
@@ -120,9 +119,9 @@ class HashDiffer(TableDiffer):
                     logger.warning(f"Using reduced precision {lowest} for column '{c1}'. Types={col1}, {col2}")
 
                 if lowest.precision != col1.precision:
-                    table1._schema[c1] = col1.replace(precision=lowest.precision)
+                    table1._schema[c1] = attrs.evolve(col1, precision=lowest.precision)
                 if lowest.precision != col2.precision:
-                    table2._schema[c2] = col2.replace(precision=lowest.precision)
+                    table2._schema[c2] = attrs.evolve(col2, precision=lowest.precision)
 
             elif isinstance(col1, ColType_UUID):
                 if not isinstance(col2, ColType_UUID):

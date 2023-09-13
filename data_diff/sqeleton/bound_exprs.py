@@ -4,7 +4,7 @@ import inspect
 from functools import wraps
 from typing import Union, TYPE_CHECKING
 
-from runtype import dataclass
+import attrs
 
 from .abcs import AbstractDatabase, AbstractCompiler
 from .queries.ast_classes import ExprNode, ITable, TablePath, Compilable
@@ -12,7 +12,7 @@ from .queries.api import table
 from .schema import create_schema
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class BoundNode(ExprNode):
     database: AbstractDatabase
     node: Compilable
@@ -47,14 +47,14 @@ def bind_node(node, database):
 ExprNode.bind = bind_node
 
 
-@dataclass
 class BoundTable(BoundNode):  # ITable
     database: AbstractDatabase
     node: TablePath
 
     def with_schema(self, schema):
-        table_path = self.node.replace(schema=schema)
-        return self.replace(node=table_path)
+        # TODO: all evolve() calls must be clearly typed obj.with_something(...).
+        table_path = attrs.evolve(self.node, schema=schema)
+        return attrs.evolve(self, node=table_path)
 
     def query_schema(self, *, columns=None, where=None, case_sensitive=True):
         table_path = self.node
@@ -93,5 +93,8 @@ def bound_table(database: AbstractDatabase, table_path: Union[TablePath, str, tu
 
 if TYPE_CHECKING:
 
+    # TODO: do we need this class? can we redesign without multiple inheritance?
+    #       it does not work with attrs when both parents have real attrs.
+    # @attrs.define(kw_only=True, frozen=True)
     class BoundTable(BoundTable, TablePath):
         pass

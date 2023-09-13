@@ -505,7 +505,14 @@ def _data_diff(
     logging.info(f"Using algorithm '{algorithm.name.lower()}'.")
 
     segments = [
-        TableSegment(db, table_path, key_columns, update_column, columns, **options)._with_raw_schema(raw_schema)
+        TableSegment(
+            database=db,
+            table_path=table_path,
+            key_columns=key_columns,
+            update_column=update_column,
+            extra_columns=columns,
+            **options
+        )._with_raw_schema(raw_schema)
         for db, table_path, raw_schema in safezip(dbs, table_paths, schemas)
     ]
 

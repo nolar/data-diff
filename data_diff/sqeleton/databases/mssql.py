@@ -1,4 +1,7 @@
 from typing import Optional
+
+import attrs
+
 from data_diff.sqeleton.abcs.mixins import AbstractMixin_MD5, AbstractMixin_NormalizeValue
 from .base import (
     CHECKSUM_HEXDIGITS,
@@ -152,6 +155,7 @@ class Dialect(BaseDialect, Mixin_Schema, Mixin_OptimizerHints):
         return f"VALUES {values}"
 
 
+@attrs.define(kw_only=True, init=False)
 class MsSQL(ThreadedDatabase):
     dialect = Dialect()
     #

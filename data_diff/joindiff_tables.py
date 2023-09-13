@@ -1,7 +1,6 @@
 """Provides classes for performing a table diff using JOIN
 
 """
-from dataclasses import field
 from decimal import Decimal
 from functools import partial
 import logging
@@ -9,7 +8,6 @@ from typing import Any, Collection, Dict, Iterable, List, Mapping, Optional, Seq
 from itertools import chain
 
 import attrs
-from runtype import dataclass
 
 from data_diff.sqeleton.databases import Database, MsSQL, MySQL, BigQuery, Presto, Oracle, Snowflake, DbPath
 from data_diff.sqeleton.abcs import NumericType
@@ -66,7 +64,7 @@ def sample(table_expr):
 
 def create_temp_table(c: Compiler, path: TablePath, expr: Expr) -> str:
     db = c.database
-    c = c.replace(root=False)  # we're compiling fragments, not full queries
+    c = attrs.evolve(c, root=False)  # we're compiling fragments, not full queries
     if isinstance(db, BigQuery):
         return f"create table {c.compile(path)} OPTIONS(expiration_timestamp=TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL 1 DAY)) as {c.compile(expr)}"
     elif isinstance(db, Presto):
@@ -399,7 +397,7 @@ class JoinDiffer(TableDiffer):
         def exclusive_rows(expr: ITable) -> Iterable[Root]:
             nonlocal db
 
-            c = Compiler(db)
+            c = Compiler(database=db)
             name = c.new_unique_table_name("temp_table")
             exclusive_rows = table(name, schema=expr.source_table.schema)
             yield Code(create_temp_table(c, exclusive_rows, expr.limit(self.table_write_limit)))

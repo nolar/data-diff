@@ -1,10 +1,10 @@
 from typing import Type, Optional, Union, Dict
 from itertools import zip_longest
 from contextlib import suppress
+
+import attrs
 import dsnparse
 import toml
-
-from runtype import dataclass
 
 from ..abcs.mixins import AbstractMixin
 from ..utils import WeakCache, Self
@@ -24,7 +24,7 @@ from .duckdb import DuckDB
 from .mssql import MsSQL
 
 
-@dataclass
+@attrs.define(kw_only=False, frozen=True)
 class MatchUriPath:
     database_cls: Type[Database]
 

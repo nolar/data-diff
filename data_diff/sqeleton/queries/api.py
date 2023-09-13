@@ -25,7 +25,7 @@ def join(*tables: ITable) -> Join:
                 .select(person['id'], city['name'])
             )
     """
-    return Join(tables)
+    return Join(source_tables=tables)
 
 
 def leftjoin(*tables: ITable):
@@ -33,7 +33,7 @@ def leftjoin(*tables: ITable):
 
     See Also: ``join()``
     """
-    return Join(tables, "LEFT")
+    return Join(source_tables=tables, op="LEFT")
 
 
 def rightjoin(*tables: ITable):
@@ -41,7 +41,7 @@ def rightjoin(*tables: ITable):
 
     See Also: ``join()``
     """
-    return Join(tables, "RIGHT")
+    return Join(source_tables=tables, op="RIGHT")
 
 
 def outerjoin(*tables: ITable):
@@ -49,12 +49,12 @@ def outerjoin(*tables: ITable):
 
     See Also: ``join()``
     """
-    return Join(tables, "FULL OUTER")
+    return Join(source_tables=tables, op="FULL OUTER")
 
 
 def cte(expr: Expr, *, name: Optional[str] = None, params: Sequence[str] = None):
     """Define a CTE"""
-    return Cte(expr, name, params)
+    return Cte(source_table=expr, name=name, params=params)
 
 
 def table(*path: str, schema: Union[dict, CaseAwareMapping] = None) -> TablePath:
@@ -71,7 +71,7 @@ def table(*path: str, schema: Union[dict, CaseAwareMapping] = None) -> TablePath
     if schema and not isinstance(schema, CaseAwareMapping):
         assert isinstance(schema, dict)
         schema = CaseSensitiveDict(schema)
-    return TablePath(path, schema)
+    return TablePath(path=path, schema=schema)
 
 
 def or_(*exprs: Expr):
@@ -144,7 +144,7 @@ def when(*when_exprs: Expr) -> QB_When:
                     .else_('unknown type')
                 )
     """
-    return CaseWhen([]).when(*when_exprs)
+    return CaseWhen(cases=[]).when(*when_exprs)
 
 
 def coalesce(*exprs):

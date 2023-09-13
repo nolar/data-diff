@@ -3,9 +3,8 @@ from typing import Collection, Iterable, List, NamedTuple, Optional, Sequence, T
 import logging
 from itertools import product
 
+import attrs
 from typing_extensions import Self
-
-from runtype import dataclass
 
 from .utils import PK, safezip, Vector
 from data_diff.sqeleton.utils import ArithString, split_space
@@ -90,7 +89,7 @@ def create_mesh_from_points(*values_per_dim: Sequence[PK]) -> Collection[Range]:
     return res
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class TableSegment:
     """Signifies a segment of rows (and selected columns) within a table
 
@@ -130,7 +129,7 @@ class TableSegment:
     case_sensitive: bool = True
     _schema: Optional[Schema] = None
 
-    def __post_init__(self):
+    def __attrs_post_init__(self) -> None:
         if not self.update_column and (self.min_update or self.max_update):
             raise ValueError("Error: the min_update/max_update feature requires 'update_column' to be set.")
 
@@ -148,7 +147,7 @@ class TableSegment:
     def _with_raw_schema(self, raw_schema: dict) -> "TableSegment":
         schema = self.database._process_table_schema(self.table_path, raw_schema, self.relevant_columns, self._where())
         schema = create_schema(self.database, self.table_path, schema, self.case_sensitive)
-        return self.replace(_schema=schema)
+        return attrs.evolve(self, schema=schema)
 
     def with_schema(self) -> "TableSegment":
         "Queries the table schema from the database, and returns a new instance of TableSegment, with a schema."
@@ -206,7 +205,7 @@ class TableSegment:
     # TODO: get rid of this factory, but used in diff_tables() -- the last usage with kwargs dict
     def new(self, **kwargs) -> "TableSegment":
         """Creates a copy of the instance using 'replace()'"""
-        return self.replace(**kwargs)
+        return attrs.evolve(self, **kwargs)
 
     def new_key_bounds(self: Self, min_key: Vector, max_key: Vector) -> Self:
         if self.min_key is not None:
@@ -217,7 +216,7 @@ class TableSegment:
             assert min_key < self.max_key
             assert max_key <= self.max_key
 
-        return self.replace(min_key=min_key, max_key=max_key)
+        return attrs.evolve(self, min_key=min_key, max_key=max_key)
 
     @property
     def relevant_columns(self) -> List[str]:

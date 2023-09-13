@@ -2,7 +2,7 @@ import collections
 from enum import Enum
 from typing import Any, Optional, List, Dict, Tuple, Type
 
-from runtype import dataclass
+import attrs
 from data_diff.diff_tables import DiffResultWrapper
 from data_diff.sqeleton.abcs.database_types import (
     JSON,
@@ -86,7 +86,7 @@ def jsonify(
     ).json()
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class JsonExclusiveRowValue:
     """
     Value of a single column in a row
@@ -96,7 +96,7 @@ class JsonExclusiveRowValue:
     value: Any
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class JsonDiffRowValue:
     """
     Pair of diffed values for 2 rows with equal PKs
@@ -108,19 +108,19 @@ class JsonDiffRowValue:
     isPK: bool
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class Total:
     dataset1: int
     dataset2: int
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class ExclusiveRows:
     dataset1: int
     dataset2: int
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class Rows:
     total: Total
     exclusive: ExclusiveRows
@@ -128,18 +128,18 @@ class Rows:
     unchanged: int
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class Stats:
     diffCounts: Dict[str, int]
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class JsonDiffSummary:
     rows: Rows
     stats: Stats
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class ExclusiveColumns:
     dataset1: List[str]
     dataset2: List[str]
@@ -172,14 +172,14 @@ KIND_MAPPING: List[Tuple[Type[ColType], ColumnKind]] = [
 ]
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class Column:
     name: str
     type: str
     kind: str
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class JsonColumnsSummary:
     dataset1: List[Column]
     dataset2: List[Column]
@@ -188,19 +188,19 @@ class JsonColumnsSummary:
     typeChanged: List[str]
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class ExclusiveDiff:
     dataset1: List[Dict[str, JsonExclusiveRowValue]]
     dataset2: List[Dict[str, JsonExclusiveRowValue]]
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class RowsDiff:
     exclusive: ExclusiveDiff
     diff: List[Dict[str, JsonDiffRowValue]]
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class FailedDiff:
     status: str  # Literal ["failed"]
     model: str
@@ -211,7 +211,7 @@ class FailedDiff:
     version: str = "1.0.0"
 
 
-@dataclass
+@attrs.define(kw_only=True, frozen=True)
 class JsonDiff:
     status: str  # Literal ["success"]
     result: str  # Literal ["different", "identical"]
