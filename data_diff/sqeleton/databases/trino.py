@@ -2,6 +2,7 @@ from ..abcs.database_types import TemporalType, ColType_UUID
 from . import presto
 from .base import import_helper
 from .base import TIMESTAMP_PRECISION_POS
+from ..abcs.mixins import AbstractMixin_MD5, AbstractMixin_NormalizeValue
 
 
 @import_helper("trino")
@@ -29,7 +30,7 @@ class Mixin_NormalizeValue(presto.Mixin_NormalizeValue):
         return f"TRIM({value})"
 
 
-class Dialect(presto.Dialect):
+class Dialect(presto.Dialect, Mixin_MD5, Mixin_NormalizeValue, AbstractMixin_MD5, AbstractMixin_NormalizeValue):
     name = "Trino"
 
 
