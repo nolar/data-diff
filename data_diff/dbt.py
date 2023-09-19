@@ -9,7 +9,7 @@ import pydantic
 import rich
 from rich.prompt import Prompt
 
-from data_diff.errors import (
+from .errors import (
     DataDiffCustomSchemaNoConfigError,
     DataDiffDbtProjectVarsNotFoundError,
     DataDiffNoAPIKeyError,

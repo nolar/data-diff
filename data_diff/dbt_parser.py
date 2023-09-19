@@ -10,7 +10,7 @@ from packaging.version import parse as parse_version
 from dbt.config.renderer import ProfileRenderer
 from .dbt_config_validators import ManifestJsonConfig, RunResultsJsonConfig
 
-from data_diff.errors import (
+from .errors import (
     DataDiffDbtBigQueryUnsupportedMethodError,
     DataDiffDbtConnectionNotImplementedError,
     DataDiffDbtCoreNoRunnerError,

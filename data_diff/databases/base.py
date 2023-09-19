@@ -2,7 +2,7 @@ from datetime import datetime
 import math
 import sys
 import logging
-from typing import Any, Callable, Dict, Generator, Tuple, Optional, Sequence, Type, List, Union, TypeVar, TYPE_CHECKING
+from typing import Any, Callable, Dict, Generator, Tuple, Optional, Sequence, Type, List, Union, TypeVar
 from functools import partial, wraps
 from concurrent.futures import ThreadPoolExecutor
 import threading
@@ -39,7 +39,7 @@ from ..abcs.database_types import (
     Boolean,
     JSON,
 )
-from ..abcs.mixins import Compilable
+from ..abcs import Compilable
 from ..abcs.mixins import (
     AbstractMixin_Schema,
     AbstractMixin_RandomSample,
@@ -315,7 +315,7 @@ class Database(AbstractDatabase[T]):
 
     Used for providing connection code and implementation specific SQL utilities.
 
-    Instanciated using :meth:`~data_diff.sqeleton.connect`
+    Instanciated using :meth:`~data_diff.connect`
     """
 
     default_schema: str = None

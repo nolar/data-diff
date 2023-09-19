@@ -3,7 +3,7 @@ import logging
 
 # logging.basicConfig(level=logging.DEBUG)
 
-from . import connect
+from .databases import connect
 
 import sys
 

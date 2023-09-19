@@ -8,8 +8,7 @@ from operator import attrgetter
 
 from runtype import dataclass
 
-from data_diff.sqeleton.abcs import ColType_UUID, NumericType, PrecisionType, StringType, Boolean, JSON
-
+from .abcs import ColType_UUID, NumericType, PrecisionType, StringType, Boolean, JSON
 from .info_tree import InfoTree
 from .utils import safezip, diffs_are_equiv_jsons
 from .thread_utils import ThreadedYielder

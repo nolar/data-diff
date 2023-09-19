@@ -12,9 +12,8 @@ import rich
 from rich.logging import RichHandler
 import click
 
-from data_diff.sqeleton.schema import create_schema
-from data_diff.sqeleton.queries.api import current_timestamp
-
+from .schema import create_schema
+from .queries import current_timestamp
 from .dbt import dbt_diff
 from .utils import eval_name_template, remove_password_from_url, safezip, match_like, LogStatusHandler
 from .diff_tables import Algorithm

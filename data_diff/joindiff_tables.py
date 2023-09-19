@@ -10,14 +10,11 @@ from itertools import chain
 
 from runtype import dataclass
 
-from data_diff.sqeleton.databases import Database, MsSQL, MySQL, BigQuery, Presto, Oracle, Snowflake, DbPath
-from data_diff.sqeleton.abcs import NumericType
-from data_diff.sqeleton.queries import (
+from .databases import Database, MsSQL, MySQL, BigQuery, Presto, Oracle, Snowflake, DbPath
+from .abcs import NumericType
+from .queries import (
     table,
     sum_,
-    min_,
-    max_,
-    avg,
     and_,
     if_,
     or_,
@@ -28,11 +25,9 @@ from data_diff.sqeleton.queries import (
     when,
     Compiler,
 )
-from data_diff.sqeleton.queries.ast_classes import Concat, Count, Expr, Func, Random, TablePath, Code, ITable
-from data_diff.sqeleton.queries.extras import NormalizeAsString
-
+from .queries.ast_classes import Concat, Count, Expr, Random, TablePath, Code, ITable
+from .queries import NormalizeAsString
 from .info_tree import InfoTree
-
 from .query_utils import append_to_table, drop_table
 from .utils import safezip
 from .table_segment import TableSegment

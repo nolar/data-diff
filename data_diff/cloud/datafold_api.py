@@ -8,8 +8,7 @@ import pydantic
 import requests
 from typing_extensions import Self
 
-from data_diff.errors import DataDiffCloudDiffFailed, DataDiffCloudDiffTimedOut, DataDiffDatasourceIdNotFoundError
-
+from ..errors import DataDiffCloudDiffFailed, DataDiffCloudDiffTimedOut, DataDiffDatasourceIdNotFoundError
 from ..utils import getLogger
 
 logger = getLogger(__name__)

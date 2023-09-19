@@ -6,13 +6,12 @@ from runtype import dataclass
 from typing_extensions import Self
 
 from ..utils import join_iter, ArithString
-from ..abcs import Compilable
+from ..abcs import Compilable, DbPath
 from ..abcs.database_types import AbstractTable
 from ..abcs.mixins import AbstractMixin_Regex, AbstractMixin_TimeTravel
 from ..schema import Schema
-
 from .compiler import Compiler, cv_params, Root, CompileError
-from .base import SKIP, DbPath, args_as_tuple, SqeletonError
+from .base import SKIP, args_as_tuple, SqeletonError
 
 
 class QueryBuilderError(SqeletonError):

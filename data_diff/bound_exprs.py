@@ -8,7 +8,7 @@ from runtype import dataclass
 from typing_extensions import Self
 
 from .abcs import AbstractDatabase, AbstractCompiler
-from .queries.ast_classes import ExprNode, ITable, TablePath, Compilable
+from .queries.ast_classes import ExprNode, TablePath, Compilable
 from .queries.api import table
 from .schema import create_schema
 
