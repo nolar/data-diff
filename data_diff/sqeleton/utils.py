@@ -6,13 +6,10 @@ from typing import (
     Any,
     Sequence,
     Dict,
-    Hashable,
     TypeVar,
-    TYPE_CHECKING,
     List,
 )
 from abc import abstractmethod
-from weakref import ref
 import math
 import string
 import re
@@ -25,30 +22,6 @@ try:
     from typing import Self
 except ImportError:
     Self = Any
-
-
-class WeakCache:
-    def __init__(self):
-        self._cache = {}
-
-    def _hashable_key(self, k: Union[dict, Hashable]) -> Hashable:
-        if isinstance(k, dict):
-            return tuple(k.items())
-        return k
-
-    def add(self, key: Union[dict, Hashable], value: Any):
-        key = self._hashable_key(key)
-        self._cache[key] = ref(value)
-
-    def get(self, key: Union[dict, Hashable]) -> Any:
-        key = self._hashable_key(key)
-
-        value = self._cache[key]()
-        if value is None:
-            del self._cache[key]
-            raise KeyError(f"Key {key} not found, or no longer a valid reference")
-
-        return value
 
 
 def join_iter(joiner: Any, iterable: Iterable) -> Iterable:
