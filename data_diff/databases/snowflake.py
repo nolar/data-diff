@@ -17,6 +17,7 @@ from data_diff.abcs.database_types import (
 )
 from data_diff.databases.base import (
     BaseDialect,
+    Compiler,
     ConnectError,
     Database,
     import_helper,
@@ -24,6 +25,7 @@ from data_diff.databases.base import (
     ThreadLocalInterpreter,
     CHECKSUM_OFFSET,
 )
+from data_diff.queries.ast_classes import Explain
 
 
 @import_helper("snowflake")
@@ -53,8 +55,8 @@ class Dialect(BaseDialect):
         "BOOLEAN": Boolean,
     }
 
-    def explain_as_text(self, query: str) -> str:
-        return f"EXPLAIN USING TEXT {query}"
+    def render_explain(self, c: Compiler, elem: Explain) -> str:
+        return f"EXPLAIN USING TEXT {self.compile(c, elem.select)}"
 
     def quote(self, s: str):
         return f'"{s}"'

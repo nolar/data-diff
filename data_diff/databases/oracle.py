@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional
 
 import attrs
 
-from data_diff.queries.ast_classes import Random
+from data_diff.queries.ast_classes import Explain, Random
 from data_diff.utils import match_regexps
 from data_diff.abcs.database_types import (
     Decimal,
@@ -100,7 +100,7 @@ class Dialect(
             "SELECT %s FROM DUAL" % ", ".join(self._constant_value(v) for v in row) for row in rows
         )
 
-    def explain_as_text(self, query: str) -> str:
+    def render_explain(self, c: Compiler, elem: Explain) -> str:
         raise NotImplementedError("Explain not yet implemented in Oracle")
 
     def parse_type(

@@ -8,7 +8,7 @@ from data_diff.utils import CaseInsensitiveDict, CaseSensitiveDict
 
 from data_diff.databases.base import Compiler, CompileError
 from data_diff.queries.api import outerjoin, cte, when, coalesce
-from data_diff.queries.ast_classes import Random
+from data_diff.queries.ast_classes import Explain, Random
 from data_diff.queries.api import code, this, table
 
 
@@ -56,8 +56,8 @@ class MockDialect(BaseDialect):
         x = offset and f"OFFSET {offset}", limit and f"LIMIT {limit}"
         return " ".join(filter(None, x))
 
-    def explain_as_text(self, query: str) -> str:
-        return f"explain {query}"
+    def render_explain(self, c: Compiler, elem: Explain) -> str:
+        return f"explain {self.compile(c, elem.select)}"
 
     def timestamp_value(self, t: datetime) -> str:
         return f"timestamp '{t}'"

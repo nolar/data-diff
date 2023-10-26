@@ -571,7 +571,8 @@ class BaseDialect(abc.ABC):
         return "random()"
 
     def render_explain(self, c: Compiler, elem: Explain) -> str:
-        return self.explain_as_text(self.compile(c, elem.select))
+        "Provide SQL for explaining a query, returned as table(varchar)"
+        return f"EXPLAIN {self.compile(c, elem.select)}"
 
     def render_currenttimestamp(self, c: Compiler, elem: CurrentTimestamp) -> str:
         return self.current_timestamp()
@@ -644,10 +645,6 @@ class BaseDialect(abc.ABC):
     def current_schema(self) -> str:
         "Provide SQL for returning the current default schema."
         return "current_schema()"
-
-    def explain_as_text(self, query: str) -> str:
-        "Provide SQL for explaining a query, returned as table(varchar)"
-        return f"EXPLAIN {query}"
 
     def _constant_value(self, v):
         if v is None:

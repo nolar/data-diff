@@ -28,7 +28,7 @@ from data_diff.databases.base import (
     TIMESTAMP_PRECISION_POS,
     CHECKSUM_OFFSET,
 )
-from data_diff.queries.ast_classes import Random
+from data_diff.queries.ast_classes import Explain, Random
 
 
 @import_helper("mysql")
@@ -91,8 +91,8 @@ class Dialect(BaseDialect):
         except KeyError:
             return super().type_repr(t)
 
-    def explain_as_text(self, query: str) -> str:
-        return f"EXPLAIN FORMAT=TREE {query}"
+    def render_explain(self, c: Compiler, elem: Explain) -> str:
+        return f"EXPLAIN FORMAT=TREE {self.compile(c, elem.select)}"
 
     def optimizer_hints(self, s: str):
         return f"/*+ {s} */ "

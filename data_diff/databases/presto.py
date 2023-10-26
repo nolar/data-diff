@@ -4,6 +4,7 @@ from typing import Any
 
 import attrs
 
+from data_diff.queries.ast_classes import Explain
 from data_diff.utils import match_regexps
 
 from data_diff.abcs.database_types import (
@@ -23,6 +24,7 @@ from data_diff.abcs.database_types import (
 )
 from data_diff.databases.base import (
     BaseDialect,
+    Compiler,
     Database,
     import_helper,
     ThreadLocalInterpreter,
@@ -70,8 +72,8 @@ class Dialect(BaseDialect):
         "boolean": Boolean,
     }
 
-    def explain_as_text(self, query: str) -> str:
-        return f"EXPLAIN (FORMAT TEXT) {query}"
+    def render_explain(self, c: Compiler, elem: Explain) -> str:
+        return f"EXPLAIN (FORMAT TEXT) {self.compile(c, elem.select)}"
 
     def type_repr(self, t) -> str:
         if isinstance(t, TimestampTZ):
