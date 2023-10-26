@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Optional
 
 import attrs
 
+from data_diff.queries.ast_classes import Random
 from data_diff.utils import match_regexps
 from data_diff.abcs.database_types import (
     Decimal,
@@ -18,6 +19,7 @@ from data_diff.abcs.database_types import (
 )
 from data_diff.databases.base import (
     BaseDialect,
+    Compiler,
     ThreadedDatabase,
     import_helper,
     ConnectError,
@@ -79,7 +81,7 @@ class Dialect(
     def timestamp_value(self, t: DbTime) -> str:
         return "timestamp '%s'" % t.isoformat(" ")
 
-    def random(self) -> str:
+    def render_random(self, c: Compiler, elem: Random) -> str:
         return "dbms_random.value"
 
     def is_distinct_from(self, a: str, b: str) -> str:

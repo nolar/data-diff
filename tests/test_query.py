@@ -38,7 +38,7 @@ class MockDialect(BaseDialect):
     def is_distinct_from(self, a: str, b: str) -> str:
         return f"{a} is distinct from {b}"
 
-    def random(self) -> str:
+    def render_random(self, c: Compiler, elem: Random) -> str:
         return "random()"
 
     def current_timestamp(self) -> str:

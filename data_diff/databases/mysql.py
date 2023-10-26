@@ -16,6 +16,7 @@ from data_diff.abcs.database_types import (
     Date,
 )
 from data_diff.databases.base import (
+    Compiler,
     ThreadedDatabase,
     import_helper,
     ConnectError,
@@ -27,6 +28,7 @@ from data_diff.databases.base import (
     TIMESTAMP_PRECISION_POS,
     CHECKSUM_OFFSET,
 )
+from data_diff.queries.ast_classes import Random
 
 
 @import_helper("mysql")
@@ -78,7 +80,7 @@ class Dialect(BaseDialect):
     def is_distinct_from(self, a: str, b: str) -> str:
         return f"not ({a} <=> {b})"
 
-    def random(self) -> str:
+    def render_random(self, c: Compiler, elem: Random) -> str:
         return "RAND()"
 
     def type_repr(self, t) -> str:

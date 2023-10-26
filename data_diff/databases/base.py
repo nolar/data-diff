@@ -567,7 +567,8 @@ class BaseDialect(abc.ABC):
         return f"cast({self.compile(c, elem.expr)} as {self.compile(c, elem.target_type)})"
 
     def render_random(self, c: Compiler, elem: Random) -> str:
-        return self.random()
+        "Provide SQL for generating a random number betweein 0..1"
+        return "random()"
 
     def render_explain(self, c: Compiler, elem: Explain) -> str:
         return self.explain_as_text(self.compile(c, elem.select))
@@ -631,10 +632,6 @@ class BaseDialect(abc.ABC):
     def timestamp_value(self, t: DbTime) -> str:
         "Provide SQL for the given timestamp value"
         return f"'{t.isoformat()}'"
-
-    def random(self) -> str:
-        "Provide SQL for generating a random number betweein 0..1"
-        return "random()"
 
     def current_timestamp(self) -> str:
         "Provide SQL for returning the current timestamp, aka now"

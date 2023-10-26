@@ -5,6 +5,7 @@ import attrs
 from data_diff.databases.base import (
     CHECKSUM_HEXDIGITS,
     CHECKSUM_OFFSET,
+    Compiler,
     QueryError,
     ThreadedDatabase,
     import_helper,
@@ -25,6 +26,7 @@ from data_diff.abcs.database_types import (
     Text,
     Boolean,
 )
+from data_diff.queries.ast_classes import Random
 
 
 @import_helper("mssql")
@@ -102,7 +104,7 @@ class Dialect(BaseDialect):
         except KeyError:
             return super().type_repr(t)
 
-    def random(self) -> str:
+    def render_random(self, c: Compiler, elem: Random) -> str:
         return "rand()"
 
     def is_distinct_from(self, a: str, b: str) -> str:

@@ -22,6 +22,7 @@ from data_diff.abcs.database_types import (
 )
 from data_diff.databases.base import (
     BaseDialect,
+    Compiler,
     Database,
     import_helper,
     parse_table_name,
@@ -33,6 +34,7 @@ from data_diff.databases.base import (
     MD5_HEXDIGITS,
 )
 from data_diff.databases.base import TIMESTAMP_PRECISION_POS, ThreadLocalInterpreter
+from data_diff.queries.ast_classes import Random
 
 
 @import_helper(text="Please install BigQuery and configure your google-cloud access.")
@@ -76,7 +78,7 @@ class Dialect(BaseDialect):
     TYPE_ARRAY_RE = re.compile(r"ARRAY<(.+)>")
     TYPE_STRUCT_RE = re.compile(r"STRUCT<(.+)>")
 
-    def random(self) -> str:
+    def render_random(self, c: Compiler, elem: Random) -> str:
         return "RAND()"
 
     def quote(self, s: str):
